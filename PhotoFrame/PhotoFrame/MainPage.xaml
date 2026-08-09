@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://microsoft.com"
+             xmlns:x="http://microsoft.com"
+             x:Class="PhotoFrame.MainPage"
+             BackgroundColor="Black">
+
+    <Grid>
+        <!-- Слой слайд-шоу на весь экран -->
+        <Image x:Name="SlideshowImage"
+               Aspect="AspectFill"
+               HorizontalOptions="FillAndExpand"
+               VerticalOptions="FillAndExpand" />
+
+        <!-- Панель управления сверху (скрывается/растворяется на черном фоне) -->
+        <StackLayout VerticalOptions="Start" 
+                     HorizontalOptions="Center" 
+                     Margin="0,20,0,0"
+                     Spacing="10">
+
+            <Button x:Name="SyncButton"
+                    Text="Войти в Google и обновить фото"
+                    Clicked="OnLoginAndSyncClicked"
+                    BackgroundColor="#80000000" 
+                    TextColor="White"
+                    FontAttributes="Bold"
+                    Padding="20,10"
+                    CornerRadius="10"/>
+
+            <Label x:Name="StatusLabel"
+                   Text="Ожидание синхронизации..."
+                   TextColor="LightGray"
+                   HorizontalOptions="Center"
+                   FontSize="14" />
+        </StackLayout>
+    </Grid>
+</ContentPage>

@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<!-- 1. CRITICAL: We isolate the target strictly to Android to completely stop iOS/Windows build tasks -->
+		<TargetFrameworks>net10.0-android</TargetFrameworks>
+
+		<OutputType>Exe</OutputType>
+		<RootNamespace>PhotoFrame</RootNamespace>
+		<UseMaui>true</UseMaui>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+
+		<!-- Disabling Nullable clears out delegate mismatches in your slideshow timer -->
+		<Nullable>disable</Nullable>
+
+		<MauiXamlInflator>SourceGen</MauiXamlInflator>
+		<Nullable>enable</Nullable>
+
+		<!-- Display name -->
+		<ApplicationTitle>PhotoFrame</ApplicationTitle>
+
+		<!-- Your customized unique App Identifier -->
+		<ApplicationId>com.morvul.photoframe</ApplicationId>
+
+		<!-- Versions -->
+		<ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+		<ApplicationVersion>1</ApplicationVersion>
+
+		<!-- 2. CRITICAL: We override the min SDK to match your Frameo frame's Android 8.1 architecture -->
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">27.0</SupportedOSPlatformVersion>
+	</PropertyGroup>
+
+	<!-- 3. CRITICAL: We adjust the runtime parameters to build a universal binary for your 32-bit CPU -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+		<RuntimeIdentifiers>android-arm;android-arm64</RuntimeIdentifiers>
+
+		<!-- Fixes the legacy resource generator error on short nested directory trees -->
+		<UseShortFileNames>true</UseShortFileNames>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- App Icon -->
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+
+		<!-- Splash Screen -->
+		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+
+		<!-- Images: Safely includes generic images while avoiding the buggy individual mapping of the bot -->
+		<MauiImage Include="Resources\Images\*" />
+
+		<!-- Custom Fonts -->
+		<MauiFont Include="Resources\Fonts\*" />
+
+		<!-- Raw Assets -->
+		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.*" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.*" />
+	</ItemGroup>
+
+</Project>
