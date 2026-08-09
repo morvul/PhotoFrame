@@ -404,9 +404,12 @@ namespace PhotoFrame
             }
             else
             {
+                // "убрано", а не "удалено": для папок на устройстве снимки лишь перестают
+                // показываться, файлы остаются на месте. Счётчик общий для обоих
+                // источников, поэтому формулировка должна быть верна и там, и там.
                 string changeSummary = syncResult.RemovedCount == 0
                     ? $"новых {syncResult.DownloadedCount}"
-                    : $"новых {syncResult.DownloadedCount}, удалено {syncResult.RemovedCount}";
+                    : $"новых {syncResult.DownloadedCount}, убрано {syncResult.RemovedCount}";
 
                 statusText = $"Обновлено: {syncResult.TotalPhotoCount} фото ({changeSummary})";
             }
