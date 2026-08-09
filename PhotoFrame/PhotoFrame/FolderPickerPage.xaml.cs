@@ -179,32 +179,20 @@ namespace PhotoFrame
         /// </remarks>
         private static ImageTally CountImages(string directoryPath)
         {
-            var enumerationOptions = new EnumerationOptions
-            {
-                RecurseSubdirectories = true,
-
-                // Без этого перечисление падает на первом же недоступном подкаталоге.
-                IgnoreInaccessible = true,
-                AttributesToSkip = FileAttributes.System,
-            };
-
             try
             {
                 int directCount = 0;
                 int nestedCount = 0;
                 int inspectedCount = 0;
 
+                // Тот же обход, что и у самого источника, поэтому счётчики здесь совпадают
+                // с тем, что реально попадёт в слайд-шоу: каталоги с миниатюрами пропущены.
                 foreach (string filePath in
-                         Directory.EnumerateFiles(directoryPath, "*", enumerationOptions))
+                         LocalFolderPhotoSource.EnumeratePhotoFiles(directoryPath, recurse: true))
                 {
                     if (++inspectedCount > ImageCountScanLimit)
                     {
                         return new ImageTally(directCount, nestedCount, WasCapped: true);
-                    }
-
-                    if (!LocalFolderPhotoSource.IsSupportedImage(filePath))
-                    {
-                        continue;
                     }
 
                     if (string.Equals(

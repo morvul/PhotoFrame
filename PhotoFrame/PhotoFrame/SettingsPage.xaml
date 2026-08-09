@@ -161,6 +161,29 @@
                 <Label Text="Кнопки и статус скрыты и появляются на 10 секунд по касанию экрана."
                        TextColor="Gray" FontSize="13" />
 
+                <!-- ================= Ночной режим ================= -->
+                <Label Text="НОЧНОЙ РЕЖИМ" TextColor="#4FC3F7" FontSize="13" FontAttributes="Bold" CharacterSpacing="2" />
+
+                <Grid ColumnDefinitions="*,Auto">
+                    <VerticalStackLayout Grid.Column="0">
+                        <Label Text="Ночью показывать часы вместо снимков" TextColor="White" FontSize="16" />
+                        <Label Text="Крупные приглушённые часы на чёрном фоне" TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+                    <Switch Grid.Column="1" x:Name="NightModeSwitch"
+                            OnColor="#4FC3F7" VerticalOptions="Center" />
+                </Grid>
+
+                <Grid ColumnDefinitions="*,150,Auto,150" ColumnSpacing="12">
+                    <Label Grid.Column="0" Text="Интервал"
+                           TextColor="White" FontSize="16" VerticalOptions="Center" />
+                    <Picker Grid.Column="1" x:Name="NightStartPicker"
+                            TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E" />
+                    <Label Grid.Column="2" Text="—"
+                           TextColor="Gray" FontSize="16" VerticalOptions="Center" />
+                    <Picker Grid.Column="3" x:Name="NightEndPicker"
+                            TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E" />
+                </Grid>
+
                 <!-- ================= О программе ================= -->
                 <Label Text="О ПРОГРАММЕ" TextColor="#4FC3F7" FontSize="13" FontAttributes="Bold" CharacterSpacing="2" />
 

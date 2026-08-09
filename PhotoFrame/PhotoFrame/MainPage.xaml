@@ -40,6 +40,30 @@
         </VerticalStackLayout>
 
         <!--
+            Ночной режим: вместо слайд-шоу — крупные приглушённые часы на чёрном.
+            InputTransparent, чтобы касание всё так же доходило до слоя жестов ниже
+            и панель управления оставалась доступной.
+        -->
+        <Grid x:Name="NightOverlay"
+              IsVisible="False"
+              BackgroundColor="Black"
+              InputTransparent="True">
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center"
+                                 Spacing="2" Opacity="0.32">
+                <Label x:Name="NightTimeLabel"
+                       TextColor="White"
+                       FontSize="200"
+                       FontAttributes="Bold"
+                       HorizontalTextAlignment="Center" />
+                <Label x:Name="NightDateLabel"
+                       TextColor="White"
+                       FontSize="30"
+                       HorizontalTextAlignment="Center"
+                       Margin="0,-24,0,0" />
+            </VerticalStackLayout>
+        </Grid>
+
+        <!--
             Панель управления. По умолчанию скрыта и появляется по касанию экрана:
             обновление идёт само, кнопка нужна лишь чтобы не ждать очередной проверки.
         -->

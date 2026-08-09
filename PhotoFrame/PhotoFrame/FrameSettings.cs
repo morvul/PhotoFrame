@@ -23,6 +23,9 @@ namespace PhotoFrame
         private const string PollIntervalKey = "poll_interval_hours";
         private const string ShuffleKey = "shuffle_photos";
         private const string FillScreenKey = "fill_screen";
+        private const string NightModeKey = "night_mode_enabled";
+        private const string NightStartHourKey = "night_start_hour";
+        private const string NightEndHourKey = "night_end_hour";
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
@@ -113,6 +116,55 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(FillScreenKey, false);
             set => Preferences.Default.Set(FillScreenKey, value);
+        }
+
+        /// <summary>
+        /// Ночью показывать вместо слайд-шоу крупные приглушённые часы.
+        /// </summary>
+        /// <remarks>
+        /// Рамка обычно стоит в комнате, где спят: яркие сменяющиеся снимки ночью мешают,
+        /// а часы на чёрном фоне остаются полезными.
+        /// </remarks>
+        public static bool NightModeEnabled
+        {
+            get => Preferences.Default.Get(NightModeKey, true);
+            set => Preferences.Default.Set(NightModeKey, value);
+        }
+
+        /// <summary>Час начала ночного режима.</summary>
+        public static int NightStartHour
+        {
+            get => Preferences.Default.Get(NightStartHourKey, 22);
+            set => Preferences.Default.Set(NightStartHourKey, value);
+        }
+
+        /// <summary>Час окончания ночного режима.</summary>
+        public static int NightEndHour
+        {
+            get => Preferences.Default.Get(NightEndHourKey, 7);
+            set => Preferences.Default.Set(NightEndHourKey, value);
+        }
+
+        /// <summary>
+        /// True, если указанное время попадает в ночной интервал.
+        /// </summary>
+        /// <remarks>
+        /// Интервал обычно переходит через полночь (22:00–07:00), поэтому сравнение
+        /// «начало &lt;= час &lt; конец» здесь не работает.
+        /// </remarks>
+        public static bool IsNightHour(int hour)
+        {
+            int startHour = NightStartHour;
+            int endHour = NightEndHour;
+
+            if (startHour == endHour)
+            {
+                return false;
+            }
+
+            return startHour < endHour
+                ? hour >= startHour && hour < endHour
+                : hour >= startHour || hour < endHour;
         }
 
         /// <summary>Показывать часы поверх снимка.</summary>

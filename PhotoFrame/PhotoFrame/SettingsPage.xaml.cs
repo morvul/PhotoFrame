@@ -24,6 +24,22 @@ namespace PhotoFrame
 
             SlideshowIntervalPicker.ItemsSource = BuildSecondsChoices();
             PollIntervalPicker.ItemsSource = BuildHoursChoices();
+
+            string[] hourChoices = BuildHourOfDayChoices();
+            NightStartPicker.ItemsSource = hourChoices;
+            NightEndPicker.ItemsSource = hourChoices;
+        }
+
+        /// <summary>Часы суток: индекс в списке равен самому часу.</summary>
+        private static string[] BuildHourOfDayChoices()
+        {
+            var hourLabels = new string[24];
+            for (int hour = 0; hour < hourLabels.Length; hour++)
+            {
+                hourLabels[hour] = $"{hour:D2}:00";
+            }
+
+            return hourLabels;
         }
 
         protected override void OnAppearing()
@@ -70,6 +86,10 @@ namespace PhotoFrame
             FillScreenSwitch.IsToggled = FrameSettings.FillScreen;
             ShowClockSwitch.IsToggled = FrameSettings.ShowClock;
             ShowDateSwitch.IsToggled = FrameSettings.ShowDate;
+
+            NightModeSwitch.IsToggled = FrameSettings.NightModeEnabled;
+            NightStartPicker.SelectedIndex = FrameSettings.NightStartHour;
+            NightEndPicker.SelectedIndex = FrameSettings.NightEndHour;
 
             SlideshowIntervalPicker.SelectedIndex = Array.IndexOf(
                 FrameSettings.SlideshowIntervalChoices, FrameSettings.SlideshowIntervalSeconds);
@@ -169,6 +189,18 @@ namespace PhotoFrame
             FrameSettings.FillScreen = FillScreenSwitch.IsToggled;
             FrameSettings.ShowClock = ShowClockSwitch.IsToggled;
             FrameSettings.ShowDate = ShowDateSwitch.IsToggled;
+            FrameSettings.NightModeEnabled = NightModeSwitch.IsToggled;
+
+            // Индекс в списке часов совпадает с самим часом.
+            if (NightStartPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.NightStartHour = NightStartPicker.SelectedIndex;
+            }
+
+            if (NightEndPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.NightEndHour = NightEndPicker.SelectedIndex;
+            }
 
             if (SlideshowIntervalPicker.SelectedIndex >= 0)
             {

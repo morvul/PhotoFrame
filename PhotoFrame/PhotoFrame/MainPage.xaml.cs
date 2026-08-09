@@ -73,6 +73,9 @@ namespace PhotoFrame
 
         private int _clockPositionIndex;
 
+        /// <summary>Ночной режим сейчас активен. null — состояние ещё не определялось.</summary>
+        private bool? _isNightModeActive;
+
         public MainPage()
         {
             InitializeComponent();
@@ -218,15 +221,13 @@ namespace PhotoFrame
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
             ClockDateHost.IsVisible = FrameSettings.ShowDate;
 
-            if (FrameSettings.ShowClock)
-            {
-                UpdateClock();
-                _clockTimer.Start();
-            }
-            else
-            {
-                _clockTimer.Stop();
-            }
+            // Расписание могли изменить в настройках — пересчитываем режим с нуля.
+            _isNightModeActive = null;
+
+            // Таймер работает всегда, даже если часы поверх снимка отключены:
+            // по нему же переключается ночной режим.
+            UpdateClock();
+            _clockTimer.Start();
         }
 
         private void OnClockTimerElapsed(object? sender, ElapsedEventArgs e)
@@ -237,18 +238,62 @@ namespace PhotoFrame
         private void UpdateClock()
         {
             DateTime localNow = DateTime.Now;
-            SetOutlinedText(_clockTimeLabels, localNow.ToString("HH:mm", CultureInfo.CurrentCulture));
+            string formattedTime = localNow.ToString("HH:mm", CultureInfo.CurrentCulture);
 
-            if (!FrameSettings.ShowDate)
+            // "Воскресенье, 9 августа" — первая буква заглавная, иначе выглядит небрежно.
+            string rawDate = localNow.ToString("dddd, d MMMM", CultureInfo.CurrentCulture);
+            string formattedDate =
+                char.ToUpper(rawDate[0], CultureInfo.CurrentCulture) + rawDate[1..];
+
+            SetOutlinedText(_clockTimeLabels, formattedTime);
+
+            if (FrameSettings.ShowDate)
+            {
+                SetOutlinedText(_clockDateLabels, formattedDate);
+            }
+
+            NightTimeLabel.Text = formattedTime;
+            NightDateLabel.Text = formattedDate;
+
+            ApplyNightMode(localNow);
+        }
+
+        /// <summary>
+        /// Включает и выключает ночной режим по расписанию. Вызывается тем же таймером,
+        /// что обновляет часы, поэтому переключение происходит в течение 10 секунд
+        /// после наступления нужного часа.
+        /// </summary>
+        private void ApplyNightMode(DateTime localNow)
+        {
+            bool shouldBeNight = FrameSettings.NightModeEnabled
+                                 && FrameSettings.IsNightHour(localNow.Hour);
+
+            if (_isNightModeActive == shouldBeNight)
             {
                 return;
             }
 
-            // "Воскресенье, 9 августа" — первая буква заглавная, иначе выглядит небрежно.
-            string formattedDate = localNow.ToString("dddd, d MMMM", CultureInfo.CurrentCulture);
-            SetOutlinedText(
-                _clockDateLabels,
-                char.ToUpper(formattedDate[0], CultureInfo.CurrentCulture) + formattedDate[1..]);
+            _isNightModeActive = shouldBeNight;
+            NightOverlay.IsVisible = shouldBeNight;
+
+            if (shouldBeNight)
+            {
+                // Смена кадров ночью не нужна, и таймер незачем держать работающим.
+                _slideshowTimer.Stop();
+                ClockOverlay.IsVisible = false;
+                return;
+            }
+
+            ClockOverlay.IsVisible = FrameSettings.ShowClock;
+
+            if (_localPhotoPaths.Count == 0)
+            {
+                return;
+            }
+
+            // Утром показываем следующий кадр сразу, не дожидаясь интервала.
+            ShowNextPhoto();
+            _slideshowTimer.Start();
         }
 
         /// <summary>Переставляет часы в следующий угол — по одному шагу на кадр.</summary>
@@ -430,7 +475,8 @@ namespace PhotoFrame
                 ShufflePhotoOrder(_localPhotoPaths);
             }
 
-            if (_localPhotoPaths.Count == 0)
+            // Ночью слайд-шоу не крутится: новые снимки подхватятся утром.
+            if (_localPhotoPaths.Count == 0 || _isNightModeActive == true)
             {
                 _slideshowTimer.Stop();
                 return;
