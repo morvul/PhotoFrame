@@ -1,5 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+	<!--
+		Локальные настройки: client id, client secret, id альбома.
+		secrets.props лежит в .gitignore и в репозиторий не попадает; шаблон —
+		secrets.props.template. Сборка без него проходит, но приложение сообщит,
+		что не настроено. См. README.
+	-->
+	<Import Project="$(MSBuildThisFileDirectory)secrets.props"
+	        Condition="Exists('$(MSBuildThisFileDirectory)secrets.props')" />
+
 	<PropertyGroup>
 		<!-- 1. CRITICAL: We isolate the target strictly to Android to completely stop iOS/Windows build tasks -->
 		<TargetFrameworks>net10.0-android</TargetFrameworks>
@@ -9,9 +18,6 @@
 		<UseMaui>true</UseMaui>
 		<SingleProject>true</SingleProject>
 		<ImplicitUsings>enable</ImplicitUsings>
-
-		<!-- Disabling Nullable clears out delegate mismatches in your slideshow timer -->
-		<Nullable>disable</Nullable>
 
 		<MauiXamlInflator>SourceGen</MauiXamlInflator>
 		<Nullable>enable</Nullable>
@@ -30,34 +36,70 @@
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">27.0</SupportedOSPlatformVersion>
 	</PropertyGroup>
 
-	<!-- 3. CRITICAL: We adjust the runtime parameters to build a universal binary for your 32-bit CPU -->
-	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
-		<RuntimeIdentifiers>android-arm;android-arm64</RuntimeIdentifiers>
+	<!--
+		3. CRITICAL: 32-битный ARM нужно указывать явно — по умолчанию .NET Android
+		собирает "android-arm64;android-x64", и такой APK на рамку не встанет.
+		Целевая рамка (Rockchip, Android 8.1) сообщает abilist = "armeabi-v7a,armeabi",
+		то есть 64-битного слоя у неё нет вовсе, и android-arm64 был бы мёртвым грузом
+		(~11 МБ в APK плюс лишний проход AOT). Проверено на устройстве:
+		adb shell getprop ro.product.cpu.abilist
 
-		<!-- Fixes the legacy resource generator error on short nested directory trees -->
-		<UseShortFileNames>true</UseShortFileNames>
+		Пакеты armeabi-v7a существуют только для MonoVM: для CoreCLR и NativeAOT
+		пакета android-arm нет, поэтому UseMonoRuntime=false и PublishAot=true
+		для этого устройства ставить нельзя.
+	-->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+		<RuntimeIdentifiers>android-arm</RuntimeIdentifiers>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<!-- App Icon -->
-		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+		<!-- App Icon: фоторамка на тёмном фоне вместо шаблонного знака .NET -->
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#22303C" />
 
-		<!-- Splash Screen -->
-		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
-
-		<!-- Images: Safely includes generic images while avoiding the buggy individual mapping of the bot -->
-		<MauiImage Include="Resources\Images\*" />
+		<!-- Splash Screen: тот же знак, тот же фон -->
+		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#22303C" BaseSize="128,128" />
 
 		<!-- Custom Fonts -->
 		<MauiFont Include="Resources\Fonts\*" />
-
-		<!-- Raw Assets -->
-		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.*" />
-		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.*" />
+		<!--
+			Pinned rather than floating (10.0.*): the Microsoft.Maui.Controls package version must
+			stay aligned with the installed MAUI workload band, and a float makes builds
+			non-reproducible across machines.
+		-->
+		<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.90" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.10" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Шаблон не компилируется, но должен быть виден в обозревателе решений. -->
+		<None Include="secrets.props.template" />
+	</ItemGroup>
+
+	<!--
+		Генерирует класс с локальными настройками из secrets.props прямо в obj/.
+		Ссылка на альбом таким образом существует только в secrets.props (в .gitignore)
+		и в промежуточных артефактах сборки — в отслеживаемых файлах её нет вообще.
+	-->
+	<Target Name="GenerateLocalConfig" BeforeTargets="BeforeCompile">
+		<PropertyGroup>
+			<_GeneratedSecretsFile>$(IntermediateOutputPath)LocalConfig.g.cs</_GeneratedSecretsFile>
+		</PropertyGroup>
+
+		<Warning Condition="'$(GooglePhotosShareUrl)' == ''"
+		         Text="secrets.props отсутствует или не заполнен: сборка пройдёт, но рамка сообщит, что ссылка на альбом не задана. Скопируйте secrets.props.template в secrets.props." />
+
+		<WriteLinesToFile File="$(_GeneratedSecretsFile)"
+		                  Overwrite="true"
+		                  WriteOnlyWhenDifferent="true"
+		                  Lines="// &lt;auto-generated /&gt; Сгенерировано из secrets.props. Не редактировать и не коммитить.;namespace PhotoFrame;{;    internal static class LocalConfig;    {;        public const string SharedAlbumUrl = &quot;$(GooglePhotosShareUrl)&quot;%3B;    };}" />
+
+		<ItemGroup>
+			<Compile Include="$(_GeneratedSecretsFile)" />
+			<FileWrites Include="$(_GeneratedSecretsFile)" />
+		</ItemGroup>
+	</Target>
 
 </Project>

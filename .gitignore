@@ -37,16 +37,23 @@
 # ==========================================
 # Безопасность и Секреты (Google API Ключи)
 # ==========================================
-# Защита от случайной отправки токенов авторизации Google Photos
-*.json
+# Защита от случайной отправки учётных данных Google.
+# Точечные шаблоны вместо прежнего "*.json": тот блокировал вообще любой JSON,
+# включая нужные файлы проекта, а правило "!AndroidManifest.xml" ничего не исправляло,
+# потому что манифест — это XML, а не JSON.
+client_secret*.json
+google-services.json
+
+# Локальные учётные данные сборки: путь/значения OAuth и id альбома.
+# Шаблон secrets.props.template отслеживается, сам secrets.props — нет.
+secrets.props
+*.keystore
+*.jks
 *.p12
 *.pem
 secrets.xml
 appsettings.json
 appsettings.Development.json
-
-# Исключение: разрешаем Git отслеживать системный манифест Android, даже если там JSON
-!AndroidManifest.xml
 
 # ==========================================
 # JetBrains Rider & VS Code (Если используются)

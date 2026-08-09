@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-
-namespace PhotoFrame
+﻿namespace PhotoFrame
 {
     public partial class App : Application
     {

@@ -1,36 +1,82 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
-<ContentPage xmlns="http://microsoft.com"
-             xmlns:x="http://microsoft.com"
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="PhotoFrame.MainPage"
-             BackgroundColor="Black">
+             BackgroundColor="Black"
+             Shell.NavBarIsVisible="False"
+             Shell.FlyoutBehavior="Disabled"
+             Shell.TabBarIsVisible="False">
 
     <Grid>
-        <!-- Слой слайд-шоу на весь экран -->
+        <!-- Слой слайд-шоу на весь экран. Aspect задаётся из настроек. -->
         <Image x:Name="SlideshowImage"
-               Aspect="AspectFill"
-               HorizontalOptions="FillAndExpand"
-               VerticalOptions="FillAndExpand" />
+               Aspect="AspectFit"
+               HorizontalOptions="Fill"
+               VerticalOptions="Fill" />
 
-        <!-- Панель управления сверху (скрывается/растворяется на черном фоне) -->
-        <StackLayout VerticalOptions="Start" 
-                     HorizontalOptions="Center" 
-                     Margin="0,20,0,0"
-                     Spacing="10">
+        <!--
+            Слой касаний. Одиночное касание показывает панель управления, двойное
+            переключает кадр: в левой половине — назад, в правой — вперёд.
 
-            <Button x:Name="SyncButton"
-                    Text="Войти в Google и обновить фото"
-                    Clicked="OnLoginAndSyncClicked"
-                    BackgroundColor="#80000000" 
+            Фон не Transparent, а #01000000: на Android полностью прозрачный layout
+            не участвует в hit-testing, и жесты до него не доходят.
+        -->
+        <Grid x:Name="TouchOverlay" BackgroundColor="#01000000">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer NumberOfTapsRequired="2" Tapped="OnDoubleTapped" />
+                <TapGestureRecognizer Tapped="OnScreenTapped" />
+            </Grid.GestureRecognizers>
+        </Grid>
+
+        <!--
+            Часы и дата. Метки с контуром собираются в code-behind: в XAML нет циклов,
+            а обводка — это девять копий текста со смещением.
+            Позиция меняется на каждом кадре, чтобы надпись не выжигалась в одном месте
+            и не мешала всё время одному и тому же углу снимка.
+        -->
+        <VerticalStackLayout x:Name="ClockOverlay" Spacing="0" InputTransparent="True">
+            <Grid x:Name="ClockTimeHost" InputTransparent="True" />
+            <Grid x:Name="ClockDateHost" InputTransparent="True" Margin="4,-8,0,0" />
+        </VerticalStackLayout>
+
+        <!--
+            Панель управления. По умолчанию скрыта и появляется по касанию экрана:
+            обновление идёт само, кнопка нужна лишь чтобы не ждать очередной проверки.
+        -->
+        <Grid x:Name="ControlPanel"
+              VerticalOptions="Start"
+              ColumnDefinitions="*,Auto"
+              Padding="20,16">
+
+            <VerticalStackLayout Grid.Column="0" HorizontalOptions="Center" Spacing="8">
+                <Button x:Name="SyncButton"
+                        Text="Обновить фото"
+                        Clicked="OnSyncClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontAttributes="Bold"
+                        Padding="20,10"
+                        CornerRadius="10"/>
+
+                <Label x:Name="StatusLabel"
+                       Text="Проверка альбома..."
+                       TextColor="LightGray"
+                       HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center"
+                       FontSize="14" />
+            </VerticalStackLayout>
+
+            <Button Grid.Column="1"
+                    x:Name="SettingsButton"
+                    Text="⚙"
+                    Clicked="OnSettingsClicked"
+                    BackgroundColor="#80000000"
                     TextColor="White"
-                    FontAttributes="Bold"
-                    Padding="20,10"
-                    CornerRadius="10"/>
-
-            <Label x:Name="StatusLabel"
-                   Text="Ожидание синхронизации..."
-                   TextColor="LightGray"
-                   HorizontalOptions="Center"
-                   FontSize="14" />
-        </StackLayout>
+                    FontSize="22"
+                    WidthRequest="56"
+                    HeightRequest="56"
+                    CornerRadius="28"
+                    VerticalOptions="Start" />
+        </Grid>
     </Grid>
 </ContentPage>
