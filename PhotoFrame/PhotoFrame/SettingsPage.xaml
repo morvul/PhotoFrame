@@ -158,6 +158,16 @@
                             OnColor="#4FC3F7" VerticalOptions="Center" />
                 </Grid>
 
+                <Grid ColumnDefinitions="*,Auto">
+                    <VerticalStackLayout Grid.Column="0">
+                        <Label Text="Чем и когда снят кадр" TextColor="White" FontSize="16" />
+                        <Label Text="Из EXIF; у пересжатых Google снимков обычно отсутствует"
+                               TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+                    <Switch Grid.Column="1" x:Name="ShowCaptureInfoSwitch"
+                            OnColor="#4FC3F7" VerticalOptions="Center" />
+                </Grid>
+
                 <Label Text="Кнопки и статус скрыты и появляются на 10 секунд по касанию экрана."
                        TextColor="Gray" FontSize="13" />
 

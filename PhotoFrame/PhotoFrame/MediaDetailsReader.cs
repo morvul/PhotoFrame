@@ -23,6 +23,107 @@ namespace PhotoFrame
         /// <summary>Пара «подпись — значение» для экрана сведений.</summary>
         public readonly record struct DetailRow(string Label, string Value);
 
+        /// <summary>Чем и когда снят кадр — для короткой подписи поверх снимка.</summary>
+        public readonly record struct CaptureInfo(string? Device, DateTime? TakenAt);
+
+        /// <summary>
+        /// Читает только съёмочные данные: этого достаточно для подписи на экране,
+        /// и не нужно собирать весь список свойств на каждом кадре.
+        /// </summary>
+        public static CaptureInfo ReadCaptureInfo(string mediaPath)
+        {
+            try
+            {
+                return MediaFileTypes.IsVideo(mediaPath)
+                    ? ReadVideoCaptureInfo(mediaPath)
+                    : ReadImageCaptureInfo(mediaPath);
+            }
+            catch (Exception readFailure) when (
+                readFailure is IOException or UnauthorizedAccessException or Java.Lang.Throwable)
+            {
+                return default;
+            }
+        }
+
+        private static CaptureInfo ReadImageCaptureInfo(string imagePath)
+        {
+            using var exif = new ExifInterface(imagePath);
+
+            string? device = CombineMakeAndModel(
+                exif.GetAttribute(ExifInterface.TagMake),
+                exif.GetAttribute(ExifInterface.TagModel));
+
+            string? takenText = exif.GetAttribute(ExifInterface.TagDatetimeOriginal)
+                                ?? exif.GetAttribute(ExifInterface.TagDatetime);
+
+            return new CaptureInfo(device, ParseExifDate(takenText));
+        }
+
+        private static CaptureInfo ReadVideoCaptureInfo(string videoPath)
+        {
+            var retriever = new MediaMetadataRetriever();
+
+            try
+            {
+                retriever.SetDataSource(videoPath);
+                return new CaptureInfo(
+                    null, ParseVideoDate(retriever.ExtractMetadata(MetadataKey.Date)));
+            }
+            finally
+            {
+                retriever.Release();
+                retriever.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// "Xiaomi" + "Redmi Note 8" даёт "Xiaomi Redmi Note 8", но "Apple" + "iPhone 12"
+        /// не должно превращаться в "Apple Apple iPhone 12".
+        /// </summary>
+        private static string? CombineMakeAndModel(string? make, string? model)
+        {
+            make = make?.Trim();
+            model = model?.Trim();
+
+            if (string.IsNullOrEmpty(model))
+            {
+                return string.IsNullOrEmpty(make) ? null : make;
+            }
+
+            if (string.IsNullOrEmpty(make)
+                || model.StartsWith(make, StringComparison.OrdinalIgnoreCase))
+            {
+                return model;
+            }
+
+            return make + " " + model;
+        }
+
+        /// <summary>EXIF хранит дату как "2024:07:12 18:30:00".</summary>
+        private static DateTime? ParseExifDate(string? exifDate) =>
+            DateTime.TryParseExact(
+                exifDate, "yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out DateTime parsed)
+                ? parsed
+                : null;
+
+        /// <summary>Контейнеры пишут дату как "20240712T183000.000Z".</summary>
+        private static DateTime? ParseVideoDate(string? containerDate)
+        {
+            string[] formats =
+            {
+                "yyyyMMdd'T'HHmmss.fff'Z'",
+                "yyyyMMdd'T'HHmmss'Z'",
+                "yyyyMMdd'T'HHmmss",
+            };
+
+            return DateTime.TryParseExact(
+                containerDate, formats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal, out DateTime parsed)
+                ? parsed.ToLocalTime()
+                : null;
+        }
+
         public static List<DetailRow> Read(string mediaPath)
         {
             var rows = new List<DetailRow>();

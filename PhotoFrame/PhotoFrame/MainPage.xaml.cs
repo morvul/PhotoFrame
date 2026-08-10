@@ -68,6 +68,7 @@ namespace PhotoFrame
         private readonly List<Label> _clockTimeLabels;
         private readonly List<Label> _clockDateLabels;
         private readonly List<Label> _sensorLabels;
+        private readonly List<Label> _captureInfoLabels;
 
         private readonly HomeAssistantClient _homeAssistantClient;
         private readonly System.Timers.Timer _sensorTimer;
@@ -117,6 +118,9 @@ namespace PhotoFrame
                 ClockDateHost, fontSize: 22, isBold: false, Color.FromArgb("#F0F0F0"), DateOutlineWidth);
             _sensorLabels = BuildOutlinedText(
                 SensorHost, fontSize: 24, isBold: true, Color.FromArgb("#BFEFFF"), DateOutlineWidth);
+            _captureInfoLabels = BuildOutlinedText(
+                CaptureInfoHost, fontSize: 17, isBold: false, Color.FromArgb("#D6D6D6"),
+                DateOutlineWidth);
 
             _homeAssistantClient =
                 IPlatformApplication.Current?.Services.GetService<HomeAssistantClient>()
@@ -398,8 +402,9 @@ namespace PhotoFrame
                 _slideshowTimer.Stop();
                 ClockOverlay.IsVisible = false;
 
-                // Ночью показания датчиков не выводим.
+                // Ночью показания датчиков и подпись кадра не выводим.
                 SensorHost.IsVisible = false;
+                CaptureInfoHost.IsVisible = false;
 
                 // И тем более не проигрываем видео.
                 StopVideoPlayback();
@@ -754,6 +759,10 @@ namespace PhotoFrame
             _isCurrentSlideVideo = MediaFileTypes.IsVideo(mediaPath);
             UpdateVideoControlsVisibility();
 
+            // Подпись читается для любого кадра, и для видео тоже: дата съёмки есть
+            // и в контейнере.
+            _ = ShowCaptureInfoAsync(mediaPath, photoGeneration);
+
             if (!_isCurrentSlideVideo)
             {
                 SlideshowImage.Source = ImageSource.FromFile(mediaPath);
@@ -777,6 +786,53 @@ namespace PhotoFrame
             {
                 StartVideoPlayback();
             }
+        }
+
+        /// <summary>
+        /// Подписывает кадр тем, чем и когда он снят.
+        /// </summary>
+        /// <remarks>
+        /// Чтение EXIF — обращение к диску, поэтому идёт в фоне; результат применяется
+        /// только если кадр за это время не сменился. Если данных нет, строка убирается:
+        /// подпись «неизвестно» поверх фотографии никому не нужна.
+        /// </remarks>
+        private async Task ShowCaptureInfoAsync(string mediaPath, int photoGeneration)
+        {
+            if (!FrameSettings.ShowCaptureInfo)
+            {
+                CaptureInfoHost.IsVisible = false;
+                return;
+            }
+
+            MediaDetailsReader.CaptureInfo captureInfo = await Task
+                .Run(() => MediaDetailsReader.ReadCaptureInfo(mediaPath))
+                .ConfigureAwait(true);
+
+            if (photoGeneration != _photoGeneration)
+            {
+                return;
+            }
+
+            var parts = new List<string>(2);
+
+            if (!string.IsNullOrEmpty(captureInfo.Device))
+            {
+                parts.Add(captureInfo.Device);
+            }
+
+            if (captureInfo.TakenAt is { } takenAt)
+            {
+                parts.Add(takenAt.ToString("d MMMM yyyy", CultureInfo.CurrentCulture));
+            }
+
+            if (parts.Count == 0)
+            {
+                CaptureInfoHost.IsVisible = false;
+                return;
+            }
+
+            SetOutlinedText(_captureInfoLabels, string.Join("  ·  ", parts));
+            CaptureInfoHost.IsVisible = _isNightModeActive != true;
         }
 
         private async Task ShowVideoPosterAsync(string videoPath, int photoGeneration)

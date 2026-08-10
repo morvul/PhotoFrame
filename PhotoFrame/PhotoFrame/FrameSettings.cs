@@ -31,6 +31,7 @@ namespace PhotoFrame
         private const string SensorIconsKey = "sensor_icons";
         private const string VideoRepeatKey = "video_repeat";
         private const string VideoMutedKey = "video_muted";
+        private const string ShowCaptureInfoKey = "show_capture_info";
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
@@ -261,6 +262,19 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(VideoMutedKey, true);
             set => Preferences.Default.Set(VideoMutedKey, value);
+        }
+
+        /// <summary>
+        /// Показывать, чем и когда снят кадр.
+        /// </summary>
+        /// <remarks>
+        /// Строка появляется только если данные есть: Google при пересжатии вырезает EXIF,
+        /// и у снимков из общего альбома подписи обычно не будет.
+        /// </remarks>
+        public static bool ShowCaptureInfo
+        {
+            get => Preferences.Default.Get(ShowCaptureInfoKey, true);
+            set => Preferences.Default.Set(ShowCaptureInfoKey, value);
         }
 
         /// <summary>Показывать часы поверх снимка.</summary>

@@ -86,6 +86,7 @@ namespace PhotoFrame
             FillScreenSwitch.IsToggled = FrameSettings.FillScreen;
             ShowClockSwitch.IsToggled = FrameSettings.ShowClock;
             ShowDateSwitch.IsToggled = FrameSettings.ShowDate;
+            ShowCaptureInfoSwitch.IsToggled = FrameSettings.ShowCaptureInfo;
 
             ShowSensorsSwitch.IsToggled = FrameSettings.ShowSensors;
             SensorPanel.IsVisible = FrameSettings.ShowSensors;
@@ -265,6 +266,7 @@ namespace PhotoFrame
             // Список датчиков правится только на SensorPickerPage.
             FrameSettings.ShowClock = ShowClockSwitch.IsToggled;
             FrameSettings.ShowDate = ShowDateSwitch.IsToggled;
+            FrameSettings.ShowCaptureInfo = ShowCaptureInfoSwitch.IsToggled;
             FrameSettings.NightModeEnabled = NightModeSwitch.IsToggled;
 
             // Индекс в списке часов совпадает с самим часом.
