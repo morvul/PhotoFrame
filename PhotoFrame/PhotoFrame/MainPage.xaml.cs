@@ -319,6 +319,7 @@ namespace PhotoFrame
             // Панель всегда скрыта при возврате на экран: поверх фотографии не должно
             // быть ничего лишнего, а показывается она касанием.
             ControlPanel.IsVisible = false;
+            UpdateVideoControlsVisibility();
             _panelHideTimer.Stop();
 
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
@@ -511,16 +512,22 @@ namespace PhotoFrame
             if (ControlPanel.IsVisible)
             {
                 ControlPanel.IsVisible = false;
+                UpdateVideoControlsVisibility();
                 return;
             }
 
             ControlPanel.IsVisible = true;
+            UpdateVideoControlsVisibility();
             _panelHideTimer.Start();
         }
 
         private void OnPanelHideTimerElapsed(object? sender, ElapsedEventArgs e)
         {
-            MainThread.BeginInvokeOnMainThread(() => ControlPanel.IsVisible = false);
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                ControlPanel.IsVisible = false;
+                UpdateVideoControlsVisibility();
+            });
         }
 
         /// <summary>
@@ -560,6 +567,17 @@ namespace PhotoFrame
         private async void OnSettingsClicked(object? sender, EventArgs e)
         {
             await Shell.Current.GoToAsync(nameof(SettingsPage));
+        }
+
+        private async void OnFileInfoClicked(object? sender, EventArgs e)
+        {
+            if (_localPhotoPaths.Count == 0)
+            {
+                return;
+            }
+
+            FileInfoPage.MediaPath = _localPhotoPaths[_currentPhotoIndex];
+            await Shell.Current.GoToAsync(nameof(FileInfoPage));
         }
 
         private async void OnSyncClicked(object? sender, EventArgs e)
@@ -748,10 +766,17 @@ namespace PhotoFrame
                 return;
             }
 
-            // У видео нет готовой картинки, поэтому показываем кадр из него самого,
-            // иначе слайд выглядел бы чёрным прямоугольником с кнопкой.
+            // У видео нет готовой картинки, поэтому показываем кадр из него самого:
+            // он виден, пока проигрыватель готовится, и остаётся фоном при ошибке.
             SlideshowImage.Source = null;
             _ = ShowVideoPosterAsync(mediaPath, photoGeneration);
+
+            // Видео начинается само, как только слайд-шоу до него дошло, и по окончании
+            // рамка переходит к следующему кадру. Ночью — не начинается.
+            if (_isNightModeActive != true)
+            {
+                StartVideoPlayback();
+            }
         }
 
         private async Task ShowVideoPosterAsync(string videoPath, int photoGeneration)
@@ -772,9 +797,15 @@ namespace PhotoFrame
             }
         }
 
+        /// <summary>
+        /// Кнопки видео живут по тем же правилам, что и панель управления: поверх снимка
+        /// не должно быть ничего лишнего, пока экран не тронули.
+        /// </summary>
         private void UpdateVideoControlsVisibility()
         {
-            VideoControls.IsVisible = _isCurrentSlideVideo && _isNightModeActive != true;
+            VideoControls.IsVisible = _isCurrentSlideVideo
+                                      && _isNightModeActive != true
+                                      && ControlPanel.IsVisible;
 
             PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
             RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;
@@ -795,6 +826,19 @@ namespace PhotoFrame
 
                 // На паузе слайд-шоу тоже стоит: пользователь ещё смотрит этот кадр.
                 UpdateVideoControlsVisibility();
+                return;
+            }
+
+            StartVideoPlayback();
+        }
+
+        /// <summary>
+        /// Запускает видео текущего кадра и придерживает слайд-шоу.
+        /// </summary>
+        private void StartVideoPlayback()
+        {
+            if (!_isCurrentSlideVideo || _localPhotoPaths.Count == 0)
+            {
                 return;
             }
 

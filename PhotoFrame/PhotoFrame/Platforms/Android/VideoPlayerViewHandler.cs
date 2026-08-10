@@ -118,7 +118,12 @@ namespace PhotoFrame
             }
 
             handler._preparedPlayer = null;
-            handler.PlatformView?.SetVideoPath(view.SourcePath);
+
+            // SetVideoPath сначала пробует трактовать путь как content://-URI и пишет в лог
+            // "No content provider", прежде чем свалиться на файл. Отдаём file://-URI сразу:
+            // и лог чище, и не зависим от того, что реализация решит попробовать первым.
+            using var videoFile = new Java.IO.File(view.SourcePath!);
+            handler.PlatformView?.SetVideoURI(Android.Net.Uri.FromFile(videoFile));
         }
 
         private static void MapIsLooping(VideoPlayerViewHandler handler, VideoPlayerView view) =>

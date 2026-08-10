@@ -158,17 +158,27 @@
                        FontSize="14" />
             </VerticalStackLayout>
 
-            <Button Grid.Column="1"
-                    x:Name="SettingsButton"
-                    Text="⚙"
-                    Clicked="OnSettingsClicked"
-                    BackgroundColor="#80000000"
-                    TextColor="White"
-                    FontSize="22"
-                    WidthRequest="56"
-                    HeightRequest="56"
-                    CornerRadius="28"
-                    VerticalOptions="Start" />
+            <HorizontalStackLayout Grid.Column="1" Spacing="10" VerticalOptions="Start">
+                <Button x:Name="FileInfoButton"
+                        Text="ℹ"
+                        Clicked="OnFileInfoClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontSize="22"
+                        WidthRequest="56"
+                        HeightRequest="56"
+                        CornerRadius="28" />
+
+                <Button x:Name="SettingsButton"
+                        Text="⚙"
+                        Clicked="OnSettingsClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontSize="22"
+                        WidthRequest="56"
+                        HeightRequest="56"
+                        CornerRadius="28" />
+            </HorizontalStackLayout>
         </Grid>
     </Grid>
 </ContentPage>
