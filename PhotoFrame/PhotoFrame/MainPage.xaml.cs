@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using Microsoft.Maui;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
+using Microsoft.Maui.Devices;
 using Microsoft.Maui.Graphics;
 
 namespace PhotoFrame
@@ -75,6 +77,15 @@ namespace PhotoFrame
 
         /// <summary>Ночной режим сейчас активен. null — состояние ещё не определялось.</summary>
         private bool? _isNightModeActive;
+
+        /// <summary>Минута, для которой уже нарисован ночной кадр.</summary>
+        private string? _lastRenderedNightMinute;
+
+        /// <summary>Текущая фаза шахматной маски ночных часов.</summary>
+        private bool _nightMaskPhaseShifted;
+
+        /// <summary>Растёт на каждом кадре: отбрасывает анализ устаревшего снимка.</summary>
+        private int _photoGeneration;
 
         public MainPage()
         {
@@ -256,6 +267,11 @@ namespace PhotoFrame
             NightDateLabel.Text = formattedDate;
 
             ApplyNightMode(localNow);
+
+            if (_isNightModeActive == true)
+            {
+                _ = RefreshNightClockAsync(formattedTime, formattedDate);
+            }
         }
 
         /// <summary>
@@ -276,6 +292,9 @@ namespace PhotoFrame
             _isNightModeActive = shouldBeNight;
             NightOverlay.IsVisible = shouldBeNight;
 
+            // Кадр часов рисуется заново при каждом входе в ночной режим.
+            _lastRenderedNightMinute = null;
+
             if (shouldBeNight)
             {
                 // Смена кадров ночью не нужна, и таймер незачем держать работающим.
@@ -284,6 +303,8 @@ namespace PhotoFrame
                 return;
             }
 
+            // Кадр 1280x800 незачем держать в памяти днём.
+            NightClockImage.Source = null;
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
 
             if (_localPhotoPaths.Count == 0)
@@ -296,16 +317,84 @@ namespace PhotoFrame
             _slideshowTimer.Start();
         }
 
+        /// <summary>
+        /// Перерисовывает ночные часы, когда изменилась минута, и сдвигает шахматную маску.
+        /// </summary>
+        private async Task RefreshNightClockAsync(string formattedTime, string formattedDate)
+        {
+            // Отрисовываем только при смене минуты: кодирование PNG на весь экран
+            // недёшево, а каждые 10 секунд картинка одна и та же.
+            if (_lastRenderedNightMinute == formattedTime)
+            {
+                return;
+            }
+
+            _lastRenderedNightMinute = formattedTime;
+
+            // Инверсия маски на каждом обновлении: светятся уже другие пиксели.
+            _nightMaskPhaseShifted = !_nightMaskPhaseShifted;
+            bool phaseShifted = _nightMaskPhaseShifted;
+
+            DisplayInfo displayInfo = DeviceDisplay.Current.MainDisplayInfo;
+            int widthPixels = (int)displayInfo.Width;
+            int heightPixels = (int)displayInfo.Height;
+
+            if (widthPixels <= 0 || heightPixels <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                byte[] pngBytes = await Task.Run(() => NightClockRenderer.RenderPng(
+                    widthPixels, heightPixels, formattedTime, formattedDate, phaseShifted))
+                    .ConfigureAwait(true);
+
+                NightClockImage.Source = ImageSource.FromStream(() => new MemoryStream(pngBytes));
+            }
+            catch (Exception renderFailure)
+            {
+                // Не удалось — под изображением остаются обычные метки с часами.
+                System.Diagnostics.Debug.WriteLine($"Ночные часы не отрисованы: {renderFailure}");
+                _lastRenderedNightMinute = null;
+            }
+        }
+
         /// <summary>Переставляет часы в следующий угол — по одному шагу на кадр.</summary>
         private void MoveClockToNextPosition()
         {
-            _clockPositionIndex = (_clockPositionIndex + 1) % ClockPositions.Length;
+            ApplyClockPosition((_clockPositionIndex + 1) % ClockPositions.Length);
+        }
+
+        private void ApplyClockPosition(int positionIndex)
+        {
+            _clockPositionIndex = positionIndex;
             (LayoutOptions horizontal, LayoutOptions vertical, Thickness margin) =
                 ClockPositions[_clockPositionIndex];
 
             ClockOverlay.HorizontalOptions = horizontal;
             ClockOverlay.VerticalOptions = vertical;
             ClockOverlay.Margin = margin;
+        }
+
+        /// <summary>
+        /// Подбирает для часов самый ровный угол снимка, избегая лиц.
+        /// </summary>
+        /// <remarks>
+        /// Анализ идёт в фоне и применяется, только если кадр за это время не сменился:
+        /// иначе часы прыгнули бы по данным уже неактуальной фотографии.
+        /// </remarks>
+        private async Task PlaceClockOverPhotoAsync(string photoPath, int photoGeneration)
+        {
+            int? bestCorner = await Task.Run(
+                () => ClockPlacementAnalyzer.ChooseBestCorner(photoPath)).ConfigureAwait(true);
+
+            if (bestCorner is null || photoGeneration != _photoGeneration)
+            {
+                return;
+            }
+
+            ApplyClockPosition(bestCorner.Value);
         }
 
         /// <summary>
@@ -530,8 +619,18 @@ namespace PhotoFrame
             // Оператор % в C# сохраняет знак, поэтому для шага назад нужна нормализация.
             _currentPhotoIndex = ((photoIndex % photoCount) + photoCount) % photoCount;
 
-            SlideshowImage.Source = ImageSource.FromFile(_localPhotoPaths[_currentPhotoIndex]);
+            string photoPath = _localPhotoPaths[_currentPhotoIndex];
+            SlideshowImage.Source = ImageSource.FromFile(photoPath);
+
+            // Сразу переставляем часы по кругу: если разбор снимка не удастся или
+            // затянется, надпись всё равно не останется на прежнем месте.
             MoveClockToNextPosition();
+
+            int photoGeneration = ++_photoGeneration;
+            if (FrameSettings.ShowClock)
+            {
+                _ = PlaceClockOverPhotoAsync(photoPath, photoGeneration);
+            }
         }
     }
 }

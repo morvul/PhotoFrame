@@ -48,6 +48,11 @@
               IsVisible="False"
               BackgroundColor="Black"
               InputTransparent="True">
+            <!--
+                Резервный вариант: обычные метки. Их закрывает NightClockImage, как только
+                кадр с шахматной маской готов; если отрисовка почему-то не удалась,
+                часы всё равно видны.
+            -->
             <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center"
                                  Spacing="2" Opacity="0.32">
                 <Label x:Name="NightTimeLabel"
@@ -61,6 +66,13 @@
                        HorizontalTextAlignment="Center"
                        Margin="0,-24,0,0" />
             </VerticalStackLayout>
+
+            <!-- Часы на весь экран: горит только каждый второй пиксель. -->
+            <Image x:Name="NightClockImage"
+                   Aspect="Fill"
+                   HorizontalOptions="Fill"
+                   VerticalOptions="Fill"
+                   InputTransparent="True" />
         </Grid>
 
         <!--
