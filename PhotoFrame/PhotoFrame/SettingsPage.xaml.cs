@@ -87,6 +87,10 @@ namespace PhotoFrame
             ShowClockSwitch.IsToggled = FrameSettings.ShowClock;
             ShowDateSwitch.IsToggled = FrameSettings.ShowDate;
 
+            ShowSensorsSwitch.IsToggled = FrameSettings.ShowSensors;
+            SensorPanel.IsVisible = FrameSettings.ShowSensors;
+            ShowSelectedSensors();
+
             NightModeSwitch.IsToggled = FrameSettings.NightModeEnabled;
             NightStartPicker.SelectedIndex = FrameSettings.NightStartHour;
             NightEndPicker.SelectedIndex = FrameSettings.NightEndHour;
@@ -141,6 +145,28 @@ namespace PhotoFrame
         {
             ApplySettings();
             await Shell.Current.GoToAsync(nameof(FolderPickerPage));
+        }
+
+        private void OnShowSensorsToggled(object? sender, ToggledEventArgs e) =>
+            SensorPanel.IsVisible = ShowSensorsSwitch.IsToggled;
+
+        private void ShowSelectedSensors()
+        {
+            string[] entityIds = FrameSettings.SensorEntityIds;
+
+            SelectedSensorsLabel.Text = entityIds.Length == 0
+                ? "Датчики не выбраны"
+                : $"Выбрано датчиков: {entityIds.Length}";
+
+            SelectedSensorsDetailLabel.Text = entityIds.Length == 0
+                ? "Нажмите «Выбрать датчики…»"
+                : string.Join(", ", entityIds);
+        }
+
+        private async void OnPickSensorsClicked(object? sender, EventArgs e)
+        {
+            ApplySettings();
+            await Shell.Current.GoToAsync(nameof(SensorPickerPage));
         }
 
         private void ShowDiagnostics()
@@ -234,6 +260,9 @@ namespace PhotoFrame
             FrameSettings.SharedAlbumUrl = ShareUrlEntry.Text ?? string.Empty;
             FrameSettings.ShufflePhotos = ShuffleSwitch.IsToggled;
             FrameSettings.FillScreen = FillScreenSwitch.IsToggled;
+            FrameSettings.ShowSensors = ShowSensorsSwitch.IsToggled;
+
+            // Список датчиков правится только на SensorPickerPage.
             FrameSettings.ShowClock = ShowClockSwitch.IsToggled;
             FrameSettings.ShowDate = ShowDateSwitch.IsToggled;
             FrameSettings.NightModeEnabled = NightModeSwitch.IsToggled;

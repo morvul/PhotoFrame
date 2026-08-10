@@ -161,6 +161,37 @@
                 <Label Text="Кнопки и статус скрыты и появляются на 10 секунд по касанию экрана."
                        TextColor="Gray" FontSize="13" />
 
+                <!-- ================= Датчики ================= -->
+                <Label Text="ДАТЧИКИ" TextColor="#4FC3F7" FontSize="13" FontAttributes="Bold" CharacterSpacing="2" />
+
+                <Grid ColumnDefinitions="*,Auto">
+                    <VerticalStackLayout Grid.Column="0">
+                        <Label Text="Показывать датчики Home Assistant" TextColor="White" FontSize="16" />
+                        <Label Text="Значения выводятся под датой; ночью не показываются"
+                               TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+                    <Switch Grid.Column="1" x:Name="ShowSensorsSwitch"
+                            Toggled="OnShowSensorsToggled"
+                            OnColor="#4FC3F7" VerticalOptions="Center" />
+                </Grid>
+
+                <Grid x:Name="SensorPanel" ColumnDefinitions="*,Auto" ColumnSpacing="16" Margin="16,0,0,0">
+                    <VerticalStackLayout Grid.Column="0" Spacing="2">
+                        <Label x:Name="SelectedSensorsLabel" TextColor="White" FontSize="16" />
+                        <Label x:Name="SelectedSensorsDetailLabel" TextColor="Gray" FontSize="13"
+                               LineBreakMode="TailTruncation" MaxLines="2" />
+                    </VerticalStackLayout>
+
+                    <Button Grid.Column="1"
+                            Text="Выбрать датчики…"
+                            Clicked="OnPickSensorsClicked"
+                            BackgroundColor="#333333"
+                            TextColor="White"
+                            Padding="18,10"
+                            CornerRadius="8"
+                            VerticalOptions="Center" />
+                </Grid>
+
                 <!-- ================= Ночной режим ================= -->
                 <Label Text="НОЧНОЙ РЕЖИМ" TextColor="#4FC3F7" FontSize="13" FontAttributes="Bold" CharacterSpacing="2" />
 

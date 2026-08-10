@@ -37,6 +37,7 @@
         <VerticalStackLayout x:Name="ClockOverlay" Spacing="0" InputTransparent="True">
             <Grid x:Name="ClockTimeHost" InputTransparent="True" />
             <Grid x:Name="ClockDateHost" InputTransparent="True" Margin="4,-8,0,0" />
+            <Grid x:Name="SensorHost" InputTransparent="True" Margin="4,4,0,0" />
         </VerticalStackLayout>
 
         <!--

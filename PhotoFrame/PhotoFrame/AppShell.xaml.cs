@@ -12,6 +12,7 @@ namespace PhotoFrame
             // во flyout, поэтому регистрируется маршрутом, а не ShellContent.
             Routing.RegisterRoute(nameof(SettingsPage), typeof(SettingsPage));
             Routing.RegisterRoute(nameof(FolderPickerPage), typeof(FolderPickerPage));
+            Routing.RegisterRoute(nameof(SensorPickerPage), typeof(SensorPickerPage));
         }
     }
 }

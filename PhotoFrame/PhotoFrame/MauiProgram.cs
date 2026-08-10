@@ -20,6 +20,7 @@ namespace PhotoFrame
             builder.Services.AddSingleton<SharedAlbumPhotoSource>();
             builder.Services.AddSingleton<LocalFolderPhotoSource>();
             builder.Services.AddSingleton<CompositePhotoSource>();
+            builder.Services.AddSingleton<HomeAssistantClient>();
 
 #if DEBUG
     		builder.Logging.AddDebug();

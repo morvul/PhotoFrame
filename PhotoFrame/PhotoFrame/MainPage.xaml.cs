@@ -61,9 +61,16 @@ namespace PhotoFrame
         private readonly System.Timers.Timer _panelHideTimer;
         private readonly System.Timers.Timer _clockTimer;
 
+        /// <summary>Как часто перечитываются значения датчиков, минуты.</summary>
+        private const int SensorRefreshMinutes = 5;
+
         /// <summary>Копии текста времени: восемь для обводки плюс одна основная.</summary>
         private readonly List<Label> _clockTimeLabels;
         private readonly List<Label> _clockDateLabels;
+        private readonly List<Label> _sensorLabels;
+
+        private readonly HomeAssistantClient _homeAssistantClient;
+        private readonly System.Timers.Timer _sensorTimer;
 
         /// <summary>Не даём проверке по таймеру наложиться на нажатие кнопки.</summary>
         private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -102,6 +109,19 @@ namespace PhotoFrame
                 ClockTimeHost, fontSize: 68, isBold: true, Colors.White, TimeOutlineWidth);
             _clockDateLabels = BuildOutlinedText(
                 ClockDateHost, fontSize: 22, isBold: false, Color.FromArgb("#F0F0F0"), DateOutlineWidth);
+            _sensorLabels = BuildOutlinedText(
+                SensorHost, fontSize: 24, isBold: true, Color.FromArgb("#BFEFFF"), DateOutlineWidth);
+
+            _homeAssistantClient =
+                IPlatformApplication.Current?.Services.GetService<HomeAssistantClient>()
+                ?? new HomeAssistantClient();
+
+            _sensorTimer = new System.Timers.Timer(
+                TimeSpan.FromMinutes(SensorRefreshMinutes).TotalMilliseconds)
+            {
+                AutoReset = true,
+            };
+            _sensorTimer.Elapsed += OnSensorTimerElapsed;
 
             _slideshowTimer = new System.Timers.Timer { AutoReset = true };
             _slideshowTimer.Elapsed += OnSlideshowTimerElapsed;
@@ -203,6 +223,66 @@ namespace PhotoFrame
             _albumPollTimer.Stop();
             _panelHideTimer.Stop();
             _clockTimer.Stop();
+            _sensorTimer.Stop();
+        }
+
+        private void OnSensorTimerElapsed(object? sender, ElapsedEventArgs e)
+        {
+            _ = RefreshSensorsAsync();
+        }
+
+        /// <summary>
+        /// Обновляет строку с показаниями датчиков.
+        /// </summary>
+        /// <remarks>
+        /// При недоступном Home Assistant строка убирается целиком: устаревшее значение
+        /// температуры хуже, чем отсутствие значения, а текст ошибки поверх фотографии
+        /// не нужен — он есть на экране настроек.
+        /// </remarks>
+        private async Task RefreshSensorsAsync()
+        {
+            string[] entityIds = FrameSettings.SensorEntityIds;
+
+            if (!FrameSettings.ShowSensors || entityIds.Length == 0
+                || !HomeAssistantClient.IsConfigured)
+            {
+                await MainThread.InvokeOnMainThreadAsync(() => SensorHost.IsVisible = false)
+                    .ConfigureAwait(true);
+                return;
+            }
+
+            try
+            {
+                List<(string EntityId, string Text)> values = await _homeAssistantClient
+                    .ReadSensorValuesAsync(entityIds).ConfigureAwait(true);
+
+                // Значок перед значением: все выбранные датчики могут быть термометрами,
+                // и без него непонятно, где какая температура.
+                var parts = new List<string>(values.Count);
+                foreach ((string entityId, string text) in values)
+                {
+                    string icon = FrameSettings.GetSensorIcon(entityId);
+                    parts.Add(string.IsNullOrEmpty(icon) ? text : icon + " " + text);
+                }
+
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    if (parts.Count == 0)
+                    {
+                        SensorHost.IsVisible = false;
+                        return;
+                    }
+
+                    SetOutlinedText(_sensorLabels, string.Join("   ", parts));
+                    SensorHost.IsVisible = _isNightModeActive != true;
+                }).ConfigureAwait(true);
+            }
+            catch (PhotoSourceException sensorFailure)
+            {
+                System.Diagnostics.Debug.WriteLine($"Датчики не прочитаны: {sensorFailure.Message}");
+                await MainThread.InvokeOnMainThreadAsync(() => SensorHost.IsVisible = false)
+                    .ConfigureAwait(true);
+            }
         }
 
         /// <summary>
@@ -239,6 +319,10 @@ namespace PhotoFrame
             // по нему же переключается ночной режим.
             UpdateClock();
             _clockTimer.Start();
+
+            // Датчики опрашиваются реже часов: комнатная температура не меняется за минуту.
+            _sensorTimer.Start();
+            _ = RefreshSensorsAsync();
         }
 
         private void OnClockTimerElapsed(object? sender, ElapsedEventArgs e)
@@ -300,6 +384,9 @@ namespace PhotoFrame
                 // Смена кадров ночью не нужна, и таймер незачем держать работающим.
                 _slideshowTimer.Stop();
                 ClockOverlay.IsVisible = false;
+
+                // Ночью показания датчиков не выводим.
+                SensorHost.IsVisible = false;
                 return;
             }
 

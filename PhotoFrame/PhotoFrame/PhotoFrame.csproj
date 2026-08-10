@@ -94,7 +94,7 @@
 		<WriteLinesToFile File="$(_GeneratedSecretsFile)"
 		                  Overwrite="true"
 		                  WriteOnlyWhenDifferent="true"
-		                  Lines="// &lt;auto-generated /&gt; Сгенерировано из secrets.props. Не редактировать и не коммитить.;namespace PhotoFrame;{;    internal static class LocalConfig;    {;        public const string SharedAlbumUrl = &quot;$(GooglePhotosShareUrl)&quot;%3B;    };}" />
+		                  Lines="// &lt;auto-generated /&gt; Сгенерировано из secrets.props. Не редактировать и не коммитить.;namespace PhotoFrame;{;    internal static class LocalConfig;    {;        public const string SharedAlbumUrl = &quot;$(GooglePhotosShareUrl)&quot;%3B;        public const string HomeAssistantBaseUrl = &quot;$(HomeAssistantBaseUrl)&quot;%3B;        public const string HomeAssistantToken = &quot;$(HomeAssistantToken)&quot;%3B;    };}" />
 
 		<ItemGroup>
 			<Compile Include="$(_GeneratedSecretsFile)" />

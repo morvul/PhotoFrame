@@ -26,6 +26,9 @@ namespace PhotoFrame
         private const string NightModeKey = "night_mode_enabled";
         private const string NightStartHourKey = "night_start_hour";
         private const string NightEndHourKey = "night_end_hour";
+        private const string ShowSensorsKey = "show_sensors";
+        private const string SensorEntityIdsKey = "sensor_entity_ids";
+        private const string SensorIconsKey = "sensor_icons";
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
@@ -166,6 +169,77 @@ namespace PhotoFrame
                 ? hour >= startHour && hour < endHour
                 : hour >= startHour || hour < endHour;
         }
+
+        /// <summary>Показывать значения датчиков Home Assistant поверх снимка.</summary>
+        public static bool ShowSensors
+        {
+            get => Preferences.Default.Get(ShowSensorsKey, false);
+            set => Preferences.Default.Set(ShowSensorsKey, value);
+        }
+
+        /// <summary>
+        /// Выбранные датчики в порядке показа. Ограничение по количеству задаёт
+        /// <see cref="HomeAssistantClient.MaxDisplayedSensors"/>.
+        /// </summary>
+        public static string[] SensorEntityIds
+        {
+            get
+            {
+                string storedIds = Preferences.Default.Get(SensorEntityIdsKey, string.Empty);
+                return storedIds.Split(
+                    '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            }
+
+            set => Preferences.Default.Set(
+                SensorEntityIdsKey, value is null ? string.Empty : string.Join('\n', value));
+        }
+
+        /// <summary>
+        /// Значок, выбранный для датчика. Пустая строка — без значка.
+        /// </summary>
+        /// <remarks>
+        /// Хранится как строки "entity_id\tзначок": все три выбранных датчика могут быть
+        /// термометрами, и без значка непонятно, где какая температура.
+        /// </remarks>
+        public static string GetSensorIcon(string entityId)
+        {
+            foreach (string line in ReadSensorIconLines())
+            {
+                int separatorIndex = line.IndexOf('\t');
+                if (separatorIndex > 0
+                    && line.AsSpan(0, separatorIndex).SequenceEqual(entityId))
+                {
+                    return line[(separatorIndex + 1)..];
+                }
+            }
+
+            return string.Empty;
+        }
+
+        public static void SetSensorIcon(string entityId, string icon)
+        {
+            var kept = new List<string>();
+            foreach (string line in ReadSensorIconLines())
+            {
+                int separatorIndex = line.IndexOf('\t');
+                if (separatorIndex > 0
+                    && !line.AsSpan(0, separatorIndex).SequenceEqual(entityId))
+                {
+                    kept.Add(line);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(icon))
+            {
+                kept.Add(entityId + '\t' + icon);
+            }
+
+            Preferences.Default.Set(SensorIconsKey, string.Join('\n', kept));
+        }
+
+        private static string[] ReadSensorIconLines() =>
+            Preferences.Default.Get(SensorIconsKey, string.Empty)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
         /// <summary>Показывать часы поверх снимка.</summary>
         public static bool ShowClock
