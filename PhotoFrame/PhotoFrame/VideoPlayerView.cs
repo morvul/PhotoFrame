@@ -56,6 +56,16 @@ namespace PhotoFrame
         /// <summary>Остановить и освободить проигрыватель.</summary>
         public void Stop() => Handler?.Invoke(nameof(Stop));
 
+        /// <summary>
+        /// Текущая позиция и длительность в миллисекундах; (0, 0) пока нечего играть.
+        /// </summary>
+        /// <remarks>
+        /// Обратный вызов в обработчик: свойства MAUI передают значения только в сторону
+        /// платформы, а прогресс нужно читать оттуда.
+        /// </remarks>
+        public (int PositionMilliseconds, int DurationMilliseconds) QueryProgress() =>
+            (Handler as VideoPlayerViewHandler)?.QueryProgress() ?? (0, 0);
+
         /// <summary>Вызывается платформенным обработчиком.</summary>
         internal void RaisePlaybackFinished() =>
             PlaybackFinished?.Invoke(this, EventArgs.Empty);

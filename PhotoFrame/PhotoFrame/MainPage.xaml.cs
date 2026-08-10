@@ -58,6 +58,9 @@ namespace PhotoFrame
         private readonly System.Timers.Timer _panelHideTimer;
         private readonly System.Timers.Timer _clockTimer;
 
+        /// <summary>Опрос позиции воспроизведения: у VideoView нет события о прогрессе.</summary>
+        private readonly System.Timers.Timer _videoProgressTimer;
+
         /// <summary>Копии текста времени: восемь для обводки плюс одна основная.</summary>
         private readonly List<Label> _clockTimeLabels;
         private readonly List<Label> _clockDateLabels;
@@ -153,6 +156,11 @@ namespace PhotoFrame
             };
             _clockTimer.Elapsed += OnClockTimerElapsed;
 
+            // Полсекунды достаточно: полоса длиной 520 px на минутном клипе сдвигается
+            // примерно на 4 px за такт, дробить мельче незачем.
+            _videoProgressTimer = new System.Timers.Timer(500) { AutoReset = true };
+            _videoProgressTimer.Elapsed += OnVideoProgressTimerElapsed;
+
             VideoPlayer.PlaybackFinished += OnVideoPlaybackFinished;
         }
 
@@ -236,6 +244,8 @@ namespace PhotoFrame
             _albumPollTimer.Stop();
             _panelHideTimer.Stop();
             _clockTimer.Stop();
+
+            _videoProgressTimer.Stop();
 
             // Уходя со страницы, освобождаем проигрыватель: иначе звук продолжится
             // на экране настроек.
@@ -895,6 +905,9 @@ namespace PhotoFrame
                 VideoPlayer.Pause();
                 _isVideoPlaying = false;
 
+                // Полосу оставляем на месте: пауза — это не сброс позиции.
+                _videoProgressTimer.Stop();
+
                 // На паузе слайд-шоу тоже стоит: пользователь ещё смотрит этот кадр.
                 UpdateTapRevealedOverlays();
                 return;
@@ -923,8 +936,35 @@ namespace PhotoFrame
             VideoPlayer.Play();
 
             _isVideoPlaying = true;
+            _videoProgressTimer.Start();
             UpdateTapRevealedOverlays();
         }
+
+        private void OnVideoProgressTimerElapsed(object? sender, ElapsedEventArgs e)
+        {
+            MainThread.BeginInvokeOnMainThread(UpdateVideoProgress);
+        }
+
+        /// <summary>
+        /// Обновляет полосу позиции. Пока файл не подготовлен, длительность приходит
+        /// отрицательной — в этом случае полосу не трогаем.
+        /// </summary>
+        private void UpdateVideoProgress()
+        {
+            (int positionMilliseconds, int durationMilliseconds) = VideoPlayer.QueryProgress();
+
+            if (durationMilliseconds <= 0)
+            {
+                return;
+            }
+
+            VideoProgressBar.Progress =
+                Math.Clamp(positionMilliseconds / (double)durationMilliseconds, 0, 1);
+
+            VideoPositionLabel.Text = ClipTimeFormatter.Describe(positionMilliseconds);
+            VideoDurationLabel.Text = ClipTimeFormatter.Describe(durationMilliseconds);
+        }
+
 
         private void OnRepeatClicked(object? sender, EventArgs e)
         {
@@ -970,6 +1010,11 @@ namespace PhotoFrame
             VideoPlayer.SourcePath = null;
             VideoPlayer.IsVisible = false;
             _isVideoPlaying = false;
+
+            _videoProgressTimer.Stop();
+            VideoProgressBar.Progress = 0;
+            VideoPositionLabel.Text = ClipTimeFormatter.Describe(0);
+            VideoDurationLabel.Text = ClipTimeFormatter.Describe(0);
         }
     }
 }

@@ -90,6 +90,32 @@ namespace PhotoFrame
             VirtualView?.RaisePlaybackFinished();
         }
 
+        /// <summary>
+        /// Текущая позиция и длительность в миллисекундах.
+        /// </summary>
+        /// <remarks>
+        /// У VideoView нет события о продвижении воспроизведения, поэтому значения
+        /// приходится опрашивать. Duration возвращает -1, пока файл не подготовлен.
+        /// </remarks>
+        internal (int PositionMilliseconds, int DurationMilliseconds) QueryProgress()
+        {
+            VideoView? platformView = PlatformView;
+            if (platformView is null)
+            {
+                return (0, 0);
+            }
+
+            try
+            {
+                return (platformView.CurrentPosition, platformView.Duration);
+            }
+            catch (Java.Lang.Throwable)
+            {
+                // Опрос до подготовки файла может бросить: прогресс тогда просто нулевой.
+                return (0, 0);
+            }
+        }
+
         private void ApplyLooping()
         {
             if (_preparedPlayer is not null && VirtualView is not null)

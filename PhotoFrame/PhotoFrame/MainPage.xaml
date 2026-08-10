@@ -118,6 +118,40 @@
                     CornerRadius="59"
                     HorizontalOptions="Center" />
 
+            <!-- Позиция воспроизведения. Фон полупрозрачный, как у кнопок: поверх
+                 светлого кадра тонкая полоска иначе не читается. -->
+            <Border x:Name="VideoProgressPanel"
+                    HorizontalOptions="Center"
+                    Padding="18,12"
+                    BackgroundColor="#80000000"
+                    StrokeThickness="0">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="12" />
+                </Border.StrokeShape>
+
+                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto"
+                      WidthRequest="520" RowSpacing="8" ColumnSpacing="12">
+                    <ProgressBar Grid.Row="0" Grid.ColumnSpan="3"
+                                 x:Name="VideoProgressBar"
+                                 Progress="0"
+                                 ProgressColor="#4FC3F7"
+                                 BackgroundColor="#40FFFFFF"
+                                 HeightRequest="6" />
+
+                    <Label Grid.Row="1" Grid.Column="0"
+                           x:Name="VideoPositionLabel"
+                           Text="0:00"
+                           TextColor="White"
+                           FontSize="14" />
+
+                    <Label Grid.Row="1" Grid.Column="2"
+                           x:Name="VideoDurationLabel"
+                           Text="0:00"
+                           TextColor="#C0C0C0"
+                           FontSize="14" />
+                </Grid>
+            </Border>
+
             <HorizontalStackLayout HorizontalOptions="Center" Spacing="16">
                 <Button x:Name="RepeatButton"
                         Text="🔁"
