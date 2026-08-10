@@ -26,10 +26,24 @@ namespace PhotoFrame
             PollIntervalPicker.ItemsSource = BuildHoursChoices();
 
             PanelRevealPicker.ItemsSource = BuildPanelRevealChoices();
+            AlbumLimitPicker.ItemsSource = BuildAlbumLimitChoices();
 
             string[] hourChoices = BuildHourOfDayChoices();
             NightStartPicker.ItemsSource = hourChoices;
             NightEndPicker.ItemsSource = hourChoices;
+        }
+
+        /// <summary>0 в списке означает «без предела».</summary>
+        private static string[] BuildAlbumLimitChoices()
+        {
+            var labels = new string[FrameSettings.AlbumPhotoLimitChoices.Length];
+            for (int index = 0; index < labels.Length; index++)
+            {
+                int limit = FrameSettings.AlbumPhotoLimitChoices[index];
+                labels[index] = limit == 0 ? "без предела" : limit + " фото";
+            }
+
+            return labels;
         }
 
         private static string[] BuildPanelRevealChoices()
@@ -93,6 +107,14 @@ namespace PhotoFrame
             UpdateSourcePanels();
 
             ShareUrlEntry.Text = FrameSettings.SharedAlbumUrl;
+
+            AlbumLimitPicker.SelectedIndex = Array.IndexOf(
+                FrameSettings.AlbumPhotoLimitChoices, FrameSettings.AlbumPhotoLimit);
+            if (AlbumLimitPicker.SelectedIndex < 0)
+            {
+                AlbumLimitPicker.SelectedIndex =
+                    Array.IndexOf(FrameSettings.AlbumPhotoLimitChoices, AppSettings.DefaultAlbumPhotoLimit);
+            }
             RecursiveSwitch.IsToggled = FrameSettings.LocalFolderRecursive;
             ShowSelectedFolders();
             ShuffleSwitch.IsToggled = FrameSettings.ShufflePhotos;
@@ -279,6 +301,12 @@ namespace PhotoFrame
             // Список папок редактируется только на FolderPickerPage, здесь он не трогается.
             FrameSettings.LocalFolderRecursive = RecursiveSwitch.IsToggled;
             FrameSettings.SharedAlbumUrl = ShareUrlEntry.Text ?? string.Empty;
+
+            if (AlbumLimitPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.AlbumPhotoLimit =
+                    FrameSettings.AlbumPhotoLimitChoices[AlbumLimitPicker.SelectedIndex];
+            }
             FrameSettings.ShufflePhotos = ShuffleSwitch.IsToggled;
             FrameSettings.FillScreen = FillScreenSwitch.IsToggled;
             FrameSettings.ShowSensors = ShowSensorsSwitch.IsToggled;

@@ -85,11 +85,11 @@ namespace PhotoFrame
             // Лимит применяется здесь, а не при разборе страницы: так известно и сколько
             // кадров в альбоме на самом деле, и об отброшенных можно сообщить.
             int availableCount = photoUrls.Count;
-            if (photoUrls.Count > AppSettings.MaxAlbumPhotosToDownload)
+            int photoLimit = FrameSettings.AlbumPhotoLimit;
+
+            if (photoLimit > 0 && photoUrls.Count > photoLimit)
             {
-                photoUrls.RemoveRange(
-                    AppSettings.MaxAlbumPhotosToDownload,
-                    photoUrls.Count - AppSettings.MaxAlbumPhotosToDownload);
+                photoUrls.RemoveRange(photoLimit, photoUrls.Count - photoLimit);
             }
 
             string albumSignature = ComputeAlbumSignature(photoUrls);

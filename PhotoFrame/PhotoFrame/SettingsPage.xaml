@@ -56,6 +56,17 @@
                            BackgroundColor="#1E1E1E"
                            FontSize="15"
                            HeightRequest="52" />
+
+                    <Grid ColumnDefinitions="*,190" Margin="0,6,0,0">
+                        <VerticalStackLayout Grid.Column="0">
+                            <Label Text="Скачивать не больше" TextColor="White" FontSize="16" />
+                            <Label Text="Каждый кадр из альбома — это загрузка и место на диске. Папки на устройстве не ограничены."
+                                   TextColor="Gray" FontSize="13" />
+                        </VerticalStackLayout>
+                        <Picker Grid.Column="1" x:Name="AlbumLimitPicker"
+                                TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
+                                VerticalOptions="Center" />
+                    </Grid>
                 </VerticalStackLayout>
 
                 <Grid ColumnDefinitions="*,Auto">

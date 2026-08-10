@@ -33,6 +33,7 @@ namespace PhotoFrame
         private const string VideoMutedKey = "video_muted";
         private const string ShowCaptureInfoKey = "show_capture_info";
         private const string PanelRevealKey = "panel_reveal_seconds";
+        private const string AlbumPhotoLimitKey = "album_photo_limit";
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
@@ -45,6 +46,11 @@ namespace PhotoFrame
 
         /// <summary>Варианты времени, через которое панель управления сама скрывается.</summary>
         public static readonly int[] PanelRevealChoices = { 3, 5, 10, 20, 30, 60 };
+
+        /// <summary>
+        /// Варианты предела на число скачиваемых из альбома кадров. 0 — без предела.
+        /// </summary>
+        public static readonly int[] AlbumPhotoLimitChoices = { 100, 250, 500, 1000, 2000, 5000, 0 };
 
         /// <summary>
         /// Брать снимки из общего альбома Google Photos. Может быть включено
@@ -288,6 +294,19 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(PanelRevealKey, 10);
             set => Preferences.Default.Set(PanelRevealKey, value);
+        }
+
+        /// <summary>
+        /// Сколько кадров максимум скачивать из общего альбома. 0 — без предела.
+        /// </summary>
+        /// <remarks>
+        /// Ограничение касается только альбома: каждый его кадр — это HTTP-запрос и место
+        /// на диске. Локальные папки не ограничены, там файлы не копируются.
+        /// </remarks>
+        public static int AlbumPhotoLimit
+        {
+            get => Preferences.Default.Get(AlbumPhotoLimitKey, AppSettings.DefaultAlbumPhotoLimit);
+            set => Preferences.Default.Set(AlbumPhotoLimitKey, value);
         }
 
         /// <summary>Показывать часы поверх снимка.</summary>

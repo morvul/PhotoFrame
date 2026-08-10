@@ -23,7 +23,8 @@ namespace PhotoFrame
         /// фотоплёнки не покажется никогда.
         ///
         /// Когда предел достигнут, об этом сообщается в статусе, а не замалчивается.
+        /// Значение задаётся в настройках; здесь только величина по умолчанию.
         /// </remarks>
-        public const int MaxAlbumPhotosToDownload = 2000;
+        public const int DefaultAlbumPhotoLimit = 2000;
     }
 }
