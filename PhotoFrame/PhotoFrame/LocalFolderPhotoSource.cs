@@ -21,10 +21,6 @@ namespace PhotoFrame
     {
         private const string ManifestFileName = "local.manifest";
 
-        /// <summary>Расширения, которые Android 8.1 умеет показывать без дополнительных кодеков.</summary>
-        private static readonly string[] SupportedExtensions =
-            { ".jpg", ".jpeg", ".png", ".webp", ".bmp" };
-
         /// <summary>
         /// Каталоги, которые пропускаются при обходе.
         /// </summary>
@@ -85,8 +81,8 @@ namespace PhotoFrame
             if (foundPhotoPaths.Count == 0)
             {
                 throw new PhotoSourceException(
-                    "В указанных папках нет изображений. Проверьте пути и права доступа " +
-                    $"(поддерживаются {string.Join(", ", SupportedExtensions)}).");
+                    "В указанных папках нет изображений и видео. Проверьте пути и права доступа " +
+                    $"(поддерживаются {MediaFileTypes.DescribeSupportedExtensions()}).");
             }
 
             // Сравниваем с прошлым проходом, чтобы показать осмысленные «новых N / удалено M».
@@ -192,7 +188,7 @@ namespace PhotoFrame
 
                 foreach (string filePath in filePaths)
                 {
-                    if (IsSupportedImage(filePath))
+                    if (MediaFileTypes.IsSupportedMedia(filePath))
                     {
                         yield return filePath;
                     }
@@ -246,21 +242,6 @@ namespace PhotoFrame
             foreach (string skippedName in SkippedDirectoryNames)
             {
                 if (directoryName.Equals(skippedName, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>True, если файл — изображение поддерживаемого формата.</summary>
-        public static bool IsSupportedImage(string filePath)
-        {
-            string extension = Path.GetExtension(filePath);
-            foreach (string supportedExtension in SupportedExtensions)
-            {
-                if (string.Equals(extension, supportedExtension, StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }

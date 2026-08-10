@@ -29,6 +29,8 @@ namespace PhotoFrame
         private const string ShowSensorsKey = "show_sensors";
         private const string SensorEntityIdsKey = "sensor_entity_ids";
         private const string SensorIconsKey = "sensor_icons";
+        private const string VideoRepeatKey = "video_repeat";
+        private const string VideoMutedKey = "video_muted";
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
@@ -240,6 +242,26 @@ namespace PhotoFrame
         private static string[] ReadSensorIconLines() =>
             Preferences.Default.Get(SensorIconsKey, string.Empty)
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        /// <summary>Повторять видео по кругу вместо перехода к следующему кадру.</summary>
+        public static bool VideoRepeat
+        {
+            get => Preferences.Default.Get(VideoRepeatKey, false);
+            set => Preferences.Default.Set(VideoRepeatKey, value);
+        }
+
+        /// <summary>
+        /// Воспроизводить видео без звука.
+        /// </summary>
+        /// <remarks>
+        /// По умолчанию включено: рамка стоит в комнате, и внезапный звук из фотографии
+        /// пугает сильнее, чем радует.
+        /// </remarks>
+        public static bool VideoMuted
+        {
+            get => Preferences.Default.Get(VideoMutedKey, true);
+            set => Preferences.Default.Set(VideoMutedKey, value);
+        }
 
         /// <summary>Показывать часы поверх снимка.</summary>
         public static bool ShowClock

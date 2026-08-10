@@ -9,6 +9,10 @@ namespace PhotoFrame
             var builder = MauiApp.CreateBuilder();
             builder
                 .UseMauiApp<App>()
+                .ConfigureMauiHandlers(handlers =>
+                    // Своя обёртка над системным VideoView вместо MediaElement из
+                    // CommunityToolkit: меньше зависимостей на 32-битной рамке.
+                    handlers.AddHandler<VideoPlayerView, VideoPlayerViewHandler>())
                 .ConfigureFonts(fonts =>
                 {
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");

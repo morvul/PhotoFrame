@@ -94,6 +94,12 @@ namespace PhotoFrame
         /// <summary>Растёт на каждом кадре: отбрасывает анализ устаревшего снимка.</summary>
         private int _photoGeneration;
 
+        /// <summary>Текущий кадр — видеофайл.</summary>
+        private bool _isCurrentSlideVideo;
+
+        /// <summary>Видео сейчас воспроизводится, слайд-шоу приостановлено.</summary>
+        private bool _isVideoPlaying;
+
         public MainPage()
         {
             InitializeComponent();
@@ -143,6 +149,8 @@ namespace PhotoFrame
                 AutoReset = true,
             };
             _clockTimer.Elapsed += OnClockTimerElapsed;
+
+            VideoPlayer.PlaybackFinished += OnVideoPlaybackFinished;
         }
 
         /// <summary>
@@ -224,6 +232,10 @@ namespace PhotoFrame
             _panelHideTimer.Stop();
             _clockTimer.Stop();
             _sensorTimer.Stop();
+
+            // Уходя со страницы, освобождаем проигрыватель: иначе звук продолжится
+            // на экране настроек.
+            StopVideoPlayback();
         }
 
         private void OnSensorTimerElapsed(object? sender, ElapsedEventArgs e)
@@ -387,6 +399,10 @@ namespace PhotoFrame
 
                 // Ночью показания датчиков не выводим.
                 SensorHost.IsVisible = false;
+
+                // И тем более не проигрываем видео.
+                StopVideoPlayback();
+                VideoControls.IsVisible = false;
                 return;
             }
 
@@ -703,21 +719,142 @@ namespace PhotoFrame
                 return;
             }
 
+            // Уходя с кадра, всегда гасим проигрыватель: иначе видео продолжало бы
+            // играть под уже следующей фотографией.
+            StopVideoPlayback();
+
             // Оператор % в C# сохраняет знак, поэтому для шага назад нужна нормализация.
             _currentPhotoIndex = ((photoIndex % photoCount) + photoCount) % photoCount;
 
-            string photoPath = _localPhotoPaths[_currentPhotoIndex];
-            SlideshowImage.Source = ImageSource.FromFile(photoPath);
+            string mediaPath = _localPhotoPaths[_currentPhotoIndex];
+            int photoGeneration = ++_photoGeneration;
 
             // Сразу переставляем часы по кругу: если разбор снимка не удастся или
             // затянется, надпись всё равно не останется на прежнем месте.
             MoveClockToNextPosition();
 
-            int photoGeneration = ++_photoGeneration;
+            _isCurrentSlideVideo = MediaFileTypes.IsVideo(mediaPath);
+            UpdateVideoControlsVisibility();
+
+            if (!_isCurrentSlideVideo)
+            {
+                SlideshowImage.Source = ImageSource.FromFile(mediaPath);
+
+                if (FrameSettings.ShowClock)
+                {
+                    _ = PlaceClockOverPhotoAsync(mediaPath, photoGeneration);
+                }
+
+                return;
+            }
+
+            // У видео нет готовой картинки, поэтому показываем кадр из него самого,
+            // иначе слайд выглядел бы чёрным прямоугольником с кнопкой.
+            SlideshowImage.Source = null;
+            _ = ShowVideoPosterAsync(mediaPath, photoGeneration);
+        }
+
+        private async Task ShowVideoPosterAsync(string videoPath, int photoGeneration)
+        {
+            string? posterPath = await Task.Run(() => VideoThumbnailCache.GetOrCreate(videoPath))
+                .ConfigureAwait(true);
+
+            if (photoGeneration != _photoGeneration || posterPath is null)
+            {
+                return;
+            }
+
+            SlideshowImage.Source = ImageSource.FromFile(posterPath);
+
             if (FrameSettings.ShowClock)
             {
-                _ = PlaceClockOverPhotoAsync(photoPath, photoGeneration);
+                await PlaceClockOverPhotoAsync(posterPath, photoGeneration).ConfigureAwait(true);
             }
+        }
+
+        private void UpdateVideoControlsVisibility()
+        {
+            VideoControls.IsVisible = _isCurrentSlideVideo && _isNightModeActive != true;
+
+            PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
+            RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;
+            MuteButton.Text = FrameSettings.VideoMuted ? "🔇" : "🔊";
+        }
+
+        private void OnPlayPauseClicked(object? sender, EventArgs e)
+        {
+            if (!_isCurrentSlideVideo || _localPhotoPaths.Count == 0)
+            {
+                return;
+            }
+
+            if (_isVideoPlaying)
+            {
+                VideoPlayer.Pause();
+                _isVideoPlaying = false;
+
+                // На паузе слайд-шоу тоже стоит: пользователь ещё смотрит этот кадр.
+                UpdateVideoControlsVisibility();
+                return;
+            }
+
+            // Пока играет видео, кадры не сменяются.
+            _slideshowTimer.Stop();
+
+            VideoPlayer.IsLooping = FrameSettings.VideoRepeat;
+            VideoPlayer.IsMuted = FrameSettings.VideoMuted;
+            VideoPlayer.SourcePath = _localPhotoPaths[_currentPhotoIndex];
+            VideoPlayer.IsVisible = true;
+            VideoPlayer.Play();
+
+            _isVideoPlaying = true;
+            UpdateVideoControlsVisibility();
+        }
+
+        private void OnRepeatClicked(object? sender, EventArgs e)
+        {
+            FrameSettings.VideoRepeat = !FrameSettings.VideoRepeat;
+            VideoPlayer.IsLooping = FrameSettings.VideoRepeat;
+            UpdateVideoControlsVisibility();
+        }
+
+        private void OnMuteClicked(object? sender, EventArgs e)
+        {
+            FrameSettings.VideoMuted = !FrameSettings.VideoMuted;
+            VideoPlayer.IsMuted = FrameSettings.VideoMuted;
+            UpdateVideoControlsVisibility();
+        }
+
+        /// <summary>
+        /// Видео доиграло. При включённом повторе сюда не приходим — проигрыватель
+        /// начинает заново сам.
+        /// </summary>
+        private void OnVideoPlaybackFinished(object? sender, EventArgs e)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                StopVideoPlayback();
+
+                // Возвращаем обычный ход слайд-шоу и сразу переходим к следующему кадру.
+                if (_localPhotoPaths.Count > 0 && _isNightModeActive != true)
+                {
+                    ShowNextPhoto();
+                    _slideshowTimer.Start();
+                }
+            });
+        }
+
+        private void StopVideoPlayback()
+        {
+            if (!_isVideoPlaying && VideoPlayer.SourcePath is null)
+            {
+                return;
+            }
+
+            VideoPlayer.Stop();
+            VideoPlayer.SourcePath = null;
+            VideoPlayer.IsVisible = false;
+            _isVideoPlaying = false;
         }
     }
 }
