@@ -82,7 +82,7 @@ namespace PhotoFrame
         /// </summary>
         private static string? CombineMakeAndModel(string? make, string? model)
         {
-            make = make?.Trim();
+            make = StripCorporateSuffix(make?.Trim());
             model = model?.Trim();
 
             if (string.IsNullOrEmpty(model))
@@ -93,10 +93,77 @@ namespace PhotoFrame
             if (string.IsNullOrEmpty(make)
                 || model.StartsWith(make, StringComparison.OrdinalIgnoreCase))
             {
-                return model;
+                return RemoveRepeatedWords(model);
             }
 
-            return make + " " + model;
+            return RemoveRepeatedWords(make + " " + model);
+        }
+
+        /// <summary>
+        /// Убирает повторяющиеся слова: у части камер производитель дублируется и в поле
+        /// модели, из-за чего получалось "NIKON CORPORATION NIKON D80".
+        /// </summary>
+        private static string RemoveRepeatedWords(string text)
+        {
+            string[] words = text.Split(
+                ' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            var kept = new List<string>(words.Length);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string word in words)
+            {
+                if (seen.Add(word))
+                {
+                    kept.Add(word);
+                }
+            }
+
+            return string.Join(' ', kept);
+        }
+
+        /// <summary>
+        /// Юридические придатки в названии производителя на экране только мешают:
+        /// "OLYMPUS CORPORATION X-3,C-60Z" превращается в "OLYMPUS X-3,C-60Z".
+        /// </summary>
+        /// <remarks>
+        /// Список намеренно короткий и состоит из отдельных слов: вычищать всё подряд
+        /// рискованно, в названиях моделей встречаются похожие сокращения.
+        /// </remarks>
+        private static string? StripCorporateSuffix(string? manufacturer)
+        {
+            if (string.IsNullOrEmpty(manufacturer))
+            {
+                return manufacturer;
+            }
+
+            string[] noiseWords =
+                { "CORPORATION", "CORP.", "CORP", "INC.", "INC", "CO.,LTD.", "CO.", "LTD.", "LTD" };
+
+            string[] words = manufacturer.Split(
+                ' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            var kept = new List<string>(words.Length);
+            foreach (string word in words)
+            {
+                bool isNoise = false;
+                foreach (string noiseWord in noiseWords)
+                {
+                    if (string.Equals(word, noiseWord, StringComparison.OrdinalIgnoreCase))
+                    {
+                        isNoise = true;
+                        break;
+                    }
+                }
+
+                if (!isNoise)
+                {
+                    kept.Add(word);
+                }
+            }
+
+            // Если от названия ничего не осталось, лучше вернуть исходное, чем пустоту.
+            return kept.Count == 0 ? manufacturer : string.Join(' ', kept);
         }
 
         /// <summary>EXIF хранит дату как "2024:07:12 18:30:00".</summary>

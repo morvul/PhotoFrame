@@ -69,6 +69,7 @@ namespace PhotoFrame
         private readonly List<Label> _clockDateLabels;
         private readonly List<Label> _sensorLabels;
         private readonly List<Label> _captureInfoLabels;
+        private readonly List<Label> _statusLabels;
 
         private readonly HomeAssistantClient _homeAssistantClient;
         private readonly System.Timers.Timer _sensorTimer;
@@ -101,6 +102,9 @@ namespace PhotoFrame
         /// <summary>Видео сейчас воспроизводится, слайд-шоу приостановлено.</summary>
         private bool _isVideoPlaying;
 
+        /// <summary>У текущего кадра есть данные о съёмке.</summary>
+        private bool _hasCaptureInfo;
+
         public MainPage()
         {
             InitializeComponent();
@@ -121,6 +125,15 @@ namespace PhotoFrame
             _captureInfoLabels = BuildOutlinedText(
                 CaptureInfoHost, fontSize: 17, isBold: false, Color.FromArgb("#D6D6D6"),
                 DateOutlineWidth);
+            _statusLabels = BuildOutlinedText(
+                StatusHost, fontSize: 14, isBold: false, Color.FromArgb("#D3D3D3"),
+                DateOutlineWidth);
+
+            // Статус выровнен по центру под кнопкой, в отличие от остальных подписей.
+            foreach (Label statusLabel in _statusLabels)
+            {
+                statusLabel.HorizontalTextAlignment = TextAlignment.Center;
+            }
 
             _homeAssistantClient =
                 IPlatformApplication.Current?.Services.GetService<HomeAssistantClient>()
@@ -195,6 +208,8 @@ namespace PhotoFrame
             labels.Add(fillLabel);
             return labels;
         }
+
+        private void SetStatusText(string text) => SetOutlinedText(_statusLabels, text);
 
         private static void SetOutlinedText(List<Label> labels, string text)
         {
@@ -323,7 +338,7 @@ namespace PhotoFrame
             // Панель всегда скрыта при возврате на экран: поверх фотографии не должно
             // быть ничего лишнего, а показывается она касанием.
             ControlPanel.IsVisible = false;
-            UpdateVideoControlsVisibility();
+            UpdateTapRevealedOverlays();
             _panelHideTimer.Stop();
 
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
@@ -404,7 +419,6 @@ namespace PhotoFrame
 
                 // Ночью показания датчиков и подпись кадра не выводим.
                 SensorHost.IsVisible = false;
-                CaptureInfoHost.IsVisible = false;
 
                 // И тем более не проигрываем видео.
                 StopVideoPlayback();
@@ -517,12 +531,12 @@ namespace PhotoFrame
             if (ControlPanel.IsVisible)
             {
                 ControlPanel.IsVisible = false;
-                UpdateVideoControlsVisibility();
+                UpdateTapRevealedOverlays();
                 return;
             }
 
             ControlPanel.IsVisible = true;
-            UpdateVideoControlsVisibility();
+            UpdateTapRevealedOverlays();
             _panelHideTimer.Start();
         }
 
@@ -531,7 +545,7 @@ namespace PhotoFrame
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 ControlPanel.IsVisible = false;
-                UpdateVideoControlsVisibility();
+                UpdateTapRevealedOverlays();
             });
         }
 
@@ -614,11 +628,11 @@ namespace PhotoFrame
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     SyncButton.IsEnabled = false;
-                    StatusLabel.Text = "Проверка источников...";
+                    SetStatusText("Проверка источников...");
                 });
 
                 var downloadProgress = new Progress<(int Completed, int Total)>(progress =>
-                    StatusLabel.Text = $"Загрузка {progress.Completed} из {progress.Total}...");
+                    SetStatusText($"Загрузка {progress.Completed} из {progress.Total}..."));
 
                 AlbumSyncResult syncResult = await _photoSource
                     .RefreshAsync(forceDownload, downloadProgress)
@@ -629,19 +643,19 @@ namespace PhotoFrame
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     LoadPhotosFromCache();
-                    StatusLabel.Text = DescribeSyncResult(syncResult);
+                    SetStatusText(DescribeSyncResult(syncResult));
                 });
             }
             catch (PhotoSourceException syncFailure)
             {
                 // Причина показывается на экране: у рамки нет консоли, и это
                 // единственный канал диагностики для пользователя.
-                await MainThread.InvokeOnMainThreadAsync(() => StatusLabel.Text = syncFailure.Message);
+                await MainThread.InvokeOnMainThreadAsync(() => SetStatusText(syncFailure.Message));
             }
             catch (Exception unexpectedFailure)
             {
                 await MainThread.InvokeOnMainThreadAsync(() =>
-                    StatusLabel.Text = "Непредвиденная ошибка обновления.");
+                    SetStatusText("Непредвиденная ошибка обновления."));
                 System.Diagnostics.Debug.WriteLine(unexpectedFailure);
             }
             finally
@@ -757,7 +771,7 @@ namespace PhotoFrame
             MoveClockToNextPosition();
 
             _isCurrentSlideVideo = MediaFileTypes.IsVideo(mediaPath);
-            UpdateVideoControlsVisibility();
+            UpdateTapRevealedOverlays();
 
             // Подпись читается для любого кадра, и для видео тоже: дата съёмки есть
             // и в контейнере.
@@ -800,7 +814,8 @@ namespace PhotoFrame
         {
             if (!FrameSettings.ShowCaptureInfo)
             {
-                CaptureInfoHost.IsVisible = false;
+                _hasCaptureInfo = false;
+                UpdateTapRevealedOverlays();
                 return;
             }
 
@@ -825,14 +840,14 @@ namespace PhotoFrame
                 parts.Add(takenAt.ToString("d MMMM yyyy", CultureInfo.CurrentCulture));
             }
 
-            if (parts.Count == 0)
+            _hasCaptureInfo = parts.Count > 0;
+
+            if (_hasCaptureInfo)
             {
-                CaptureInfoHost.IsVisible = false;
-                return;
+                SetOutlinedText(_captureInfoLabels, string.Join("  ·  ", parts));
             }
 
-            SetOutlinedText(_captureInfoLabels, string.Join("  ·  ", parts));
-            CaptureInfoHost.IsVisible = _isNightModeActive != true;
+            UpdateTapRevealedOverlays();
         }
 
         private async Task ShowVideoPosterAsync(string videoPath, int photoGeneration)
@@ -854,14 +869,16 @@ namespace PhotoFrame
         }
 
         /// <summary>
-        /// Кнопки видео живут по тем же правилам, что и панель управления: поверх снимка
-        /// не должно быть ничего лишнего, пока экран не тронули.
+        /// Кнопки видео и подпись кадра живут по тем же правилам, что и панель
+        /// управления: поверх снимка не должно быть ничего лишнего, пока экран не тронули.
         /// </summary>
-        private void UpdateVideoControlsVisibility()
+        private void UpdateTapRevealedOverlays()
         {
-            VideoControls.IsVisible = _isCurrentSlideVideo
-                                      && _isNightModeActive != true
-                                      && ControlPanel.IsVisible;
+            bool panelVisible = ControlPanel.IsVisible;
+            bool isDayTime = _isNightModeActive != true;
+
+            VideoControls.IsVisible = _isCurrentSlideVideo && isDayTime && panelVisible;
+            CaptureInfoHost.IsVisible = _hasCaptureInfo && isDayTime && panelVisible;
 
             PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
             RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;
@@ -881,7 +898,7 @@ namespace PhotoFrame
                 _isVideoPlaying = false;
 
                 // На паузе слайд-шоу тоже стоит: пользователь ещё смотрит этот кадр.
-                UpdateVideoControlsVisibility();
+                UpdateTapRevealedOverlays();
                 return;
             }
 
@@ -908,21 +925,21 @@ namespace PhotoFrame
             VideoPlayer.Play();
 
             _isVideoPlaying = true;
-            UpdateVideoControlsVisibility();
+            UpdateTapRevealedOverlays();
         }
 
         private void OnRepeatClicked(object? sender, EventArgs e)
         {
             FrameSettings.VideoRepeat = !FrameSettings.VideoRepeat;
             VideoPlayer.IsLooping = FrameSettings.VideoRepeat;
-            UpdateVideoControlsVisibility();
+            UpdateTapRevealedOverlays();
         }
 
         private void OnMuteClicked(object? sender, EventArgs e)
         {
             FrameSettings.VideoMuted = !FrameSettings.VideoMuted;
             VideoPlayer.IsMuted = FrameSettings.VideoMuted;
-            UpdateVideoControlsVisibility();
+            UpdateTapRevealedOverlays();
         }
 
         /// <summary>

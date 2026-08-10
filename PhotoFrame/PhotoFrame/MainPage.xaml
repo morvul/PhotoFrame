@@ -151,12 +151,8 @@
                         Padding="20,10"
                         CornerRadius="10"/>
 
-                <Label x:Name="StatusLabel"
-                       Text="Проверка альбома..."
-                       TextColor="LightGray"
-                       HorizontalOptions="Center"
-                       HorizontalTextAlignment="Center"
-                       FontSize="14" />
+                <!-- Статус лежит поверх снимка, поэтому тоже с обводкой. -->
+                <Grid x:Name="StatusHost" HorizontalOptions="Center" />
             </VerticalStackLayout>
 
             <HorizontalStackLayout Grid.Column="1" Spacing="10" VerticalOptions="Start">
