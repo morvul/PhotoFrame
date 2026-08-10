@@ -168,8 +168,16 @@
                             OnColor="#4FC3F7" VerticalOptions="Center" />
                 </Grid>
 
-                <Label Text="Кнопки и статус скрыты и появляются на 10 секунд по касанию экрана."
-                       TextColor="Gray" FontSize="13" />
+                <Grid ColumnDefinitions="*,180">
+                    <VerticalStackLayout Grid.Column="0">
+                        <Label Text="Скрывать панель через" TextColor="White" FontSize="16" />
+                        <Label Text="Кнопки, статус и подпись кадра появляются по касанию экрана"
+                               TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+                    <Picker Grid.Column="1" x:Name="PanelRevealPicker"
+                            TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
+                            VerticalOptions="Center" />
+                </Grid>
 
                 <!-- ================= Датчики ================= -->
                 <Label Text="ДАТЧИКИ" TextColor="#4FC3F7" FontSize="13" FontAttributes="Bold" CharacterSpacing="2" />

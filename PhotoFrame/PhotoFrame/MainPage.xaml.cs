@@ -15,9 +15,6 @@ namespace PhotoFrame
 {
     public partial class MainPage : ContentPage
     {
-        /// <summary>Сколько секунд панель висит на экране после касания.</summary>
-        private const int PanelRevealSeconds = 10;
-
         /// <summary>
         /// Толщина обводки в пикселях. Время крупное, ему нужен чуть заметнее контур,
         /// чем мелкой дате — одинаковая толщина делала дату «жирной».
@@ -61,9 +58,6 @@ namespace PhotoFrame
         private readonly System.Timers.Timer _panelHideTimer;
         private readonly System.Timers.Timer _clockTimer;
 
-        /// <summary>Как часто перечитываются значения датчиков, минуты.</summary>
-        private const int SensorRefreshMinutes = 5;
-
         /// <summary>Копии текста времени: восемь для обводки плюс одна основная.</summary>
         private readonly List<Label> _clockTimeLabels;
         private readonly List<Label> _clockDateLabels;
@@ -72,7 +66,9 @@ namespace PhotoFrame
         private readonly List<Label> _statusLabels;
 
         private readonly HomeAssistantClient _homeAssistantClient;
-        private readonly System.Timers.Timer _sensorTimer;
+
+        /// <summary>Минута, для которой датчики уже перечитаны.</summary>
+        private string? _lastSensorMinute;
 
         /// <summary>Не даём проверке по таймеру наложиться на нажатие кнопки.</summary>
         private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -139,24 +135,14 @@ namespace PhotoFrame
                 IPlatformApplication.Current?.Services.GetService<HomeAssistantClient>()
                 ?? new HomeAssistantClient();
 
-            _sensorTimer = new System.Timers.Timer(
-                TimeSpan.FromMinutes(SensorRefreshMinutes).TotalMilliseconds)
-            {
-                AutoReset = true,
-            };
-            _sensorTimer.Elapsed += OnSensorTimerElapsed;
-
             _slideshowTimer = new System.Timers.Timer { AutoReset = true };
             _slideshowTimer.Elapsed += OnSlideshowTimerElapsed;
 
             _albumPollTimer = new System.Timers.Timer { AutoReset = true };
             _albumPollTimer.Elapsed += OnAlbumPollTimerElapsed;
 
-            _panelHideTimer = new System.Timers.Timer(
-                TimeSpan.FromSeconds(PanelRevealSeconds).TotalMilliseconds)
-            {
-                AutoReset = false,
-            };
+            // Интервал задаётся в ApplySettings: он настраивается пользователем.
+            _panelHideTimer = new System.Timers.Timer { AutoReset = false };
             _panelHideTimer.Elapsed += OnPanelHideTimerElapsed;
 
             // Минуты меняются раз в 60 секунд, но опрос раз в 10 секунд гарантирует,
@@ -250,16 +236,10 @@ namespace PhotoFrame
             _albumPollTimer.Stop();
             _panelHideTimer.Stop();
             _clockTimer.Stop();
-            _sensorTimer.Stop();
 
             // Уходя со страницы, освобождаем проигрыватель: иначе звук продолжится
             // на экране настроек.
             StopVideoPlayback();
-        }
-
-        private void OnSensorTimerElapsed(object? sender, ElapsedEventArgs e)
-        {
-            _ = RefreshSensorsAsync();
         }
 
         /// <summary>
@@ -332,6 +312,8 @@ namespace PhotoFrame
                 TimeSpan.FromSeconds(FrameSettings.SlideshowIntervalSeconds).TotalMilliseconds;
             _albumPollTimer.Interval =
                 TimeSpan.FromHours(FrameSettings.AlbumPollIntervalHours).TotalMilliseconds;
+            _panelHideTimer.Interval =
+                TimeSpan.FromSeconds(FrameSettings.PanelRevealSeconds).TotalMilliseconds;
 
             SlideshowImage.Aspect = FrameSettings.FillScreen ? Aspect.AspectFill : Aspect.AspectFit;
 
@@ -352,9 +334,8 @@ namespace PhotoFrame
             UpdateClock();
             _clockTimer.Start();
 
-            // Датчики опрашиваются реже часов: комнатная температура не меняется за минуту.
-            _sensorTimer.Start();
-            _ = RefreshSensorsAsync();
+            // Датчики перечитываются вместе со сменой минуты на часах — см. UpdateClock.
+            _lastSensorMinute = null;
         }
 
         private void OnClockTimerElapsed(object? sender, ElapsedEventArgs e)
@@ -381,6 +362,14 @@ namespace PhotoFrame
 
             NightTimeLabel.Text = formattedTime;
             NightDateLabel.Text = formattedDate;
+
+            // Значения датчиков обновляются вместе с показанным временем: раз в минуту,
+            // а не по отдельному расписанию, из-за которого они выглядели устаревшими.
+            if (_lastSensorMinute != formattedTime)
+            {
+                _lastSensorMinute = formattedTime;
+                _ = RefreshSensorsAsync();
+            }
 
             ApplyNightMode(localNow);
 
@@ -522,7 +511,7 @@ namespace PhotoFrame
 
         /// <summary>
         /// Касание переключает панель управления: первое показывает, второе убирает.
-        /// Если не трогать экран, панель уходит сама через <see cref="PanelRevealSeconds"/> секунд.
+        /// Если не трогать экран, панель уходит сама через настроенное время.
         /// </summary>
         private void OnScreenTapped(object? sender, TappedEventArgs e)
         {
@@ -631,8 +620,10 @@ namespace PhotoFrame
                     SetStatusText("Проверка источников...");
                 });
 
+                // Прогресс приходит только от альбома: локальные папки ничего не качают,
+                // и писать "Загрузка" про обход файлов было бы неправдой.
                 var downloadProgress = new Progress<(int Completed, int Total)>(progress =>
-                    SetStatusText($"Загрузка {progress.Completed} из {progress.Total}..."));
+                    SetStatusText($"Загрузка из альбома: {progress.Completed} из {progress.Total}..."));
 
                 AlbumSyncResult syncResult = await _photoSource
                     .RefreshAsync(forceDownload, downloadProgress)
@@ -686,6 +677,13 @@ namespace PhotoFrame
                     : $"новых {syncResult.DownloadedCount}, убрано {syncResult.RemovedCount}";
 
                 statusText = $"Обновлено: {syncResult.TotalPhotoCount} фото ({changeSummary})";
+            }
+
+            // Лимит на число кадров не должен срабатывать втихую: иначе кажется,
+            // что показывается весь альбом.
+            if (syncResult.AvailableCount > syncResult.TotalPhotoCount)
+            {
+                statusText += $" из {syncResult.AvailableCount} в альбоме (предел загрузки)";
             }
 
             // Один источник мог отказать, а показывать всё равно есть что — не скрываем это.

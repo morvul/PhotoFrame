@@ -48,8 +48,17 @@
             <Grid x:Name="ClockTimeHost" InputTransparent="True" />
             <Grid x:Name="ClockDateHost" InputTransparent="True" Margin="4,-8,0,0" />
             <Grid x:Name="SensorHost" InputTransparent="True" Margin="4,4,0,0" />
-            <Grid x:Name="CaptureInfoHost" InputTransparent="True" Margin="4,6,0,0" />
         </VerticalStackLayout>
+
+        <!--
+            Чем и когда снят кадр. Приколочено к левому нижнему углу, а не привязано
+            к часам: часы гуляют по углам, и подпись прыгала вместе с ними.
+        -->
+        <Grid x:Name="CaptureInfoHost"
+              InputTransparent="True"
+              HorizontalOptions="Start"
+              VerticalOptions="End"
+              Margin="26,0,0,14" />
 
         <!--
             Ночной режим: вместо слайд-шоу — крупные приглушённые часы на чёрном.

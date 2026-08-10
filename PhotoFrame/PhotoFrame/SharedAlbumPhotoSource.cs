@@ -81,16 +81,31 @@ namespace PhotoFrame
             CancellationToken cancellationToken = default)
         {
             List<string> photoUrls = await GetPhotoUrlsAsync(cancellationToken).ConfigureAwait(false);
+
+            // Лимит применяется здесь, а не при разборе страницы: так известно и сколько
+            // кадров в альбоме на самом деле, и об отброшенных можно сообщить.
+            int availableCount = photoUrls.Count;
+            if (photoUrls.Count > AppSettings.MaxAlbumPhotosToDownload)
+            {
+                photoUrls.RemoveRange(
+                    AppSettings.MaxAlbumPhotosToDownload,
+                    photoUrls.Count - AppSettings.MaxAlbumPhotosToDownload);
+            }
+
             string albumSignature = ComputeAlbumSignature(photoUrls);
 
             // Самый частый случай: альбом не менялся, диск можно вообще не трогать.
             if (!forceRefresh && IsAlreadyDownloaded(albumSignature))
             {
                 int cachedCount = GetCachedPhotoPaths().Count;
-                return new AlbumSyncResult(cachedCount, DownloadedCount: 0, cachedCount, RemovedCount: 0);
+                return new AlbumSyncResult(
+                    cachedCount, DownloadedCount: 0, cachedCount, RemovedCount: 0, availableCount);
             }
 
-            return await SyncPhotosAsync(photoUrls, progress, cancellationToken).ConfigureAwait(false);
+            AlbumSyncResult result =
+                await SyncPhotosAsync(photoUrls, progress, cancellationToken).ConfigureAwait(false);
+
+            return result with { AvailableCount = availableCount };
         }
 
         /// <summary>
@@ -127,13 +142,6 @@ namespace PhotoFrame
                 throw new PhotoSourceException(
                     "В странице альбома не найдено ни одной ссылки на снимок. " +
                     "Проверьте, что ссылка на альбом ещё действует и открыт публичный доступ.");
-            }
-
-            if (photoUrls.Count > AppSettings.MaxPhotosToDownload)
-            {
-                photoUrls.RemoveRange(
-                    AppSettings.MaxPhotosToDownload,
-                    photoUrls.Count - AppSettings.MaxPhotosToDownload);
             }
 
             return photoUrls;

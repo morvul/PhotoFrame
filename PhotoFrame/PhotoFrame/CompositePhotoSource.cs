@@ -96,6 +96,7 @@ namespace PhotoFrame
             int downloadedCount = 0;
             int reusedCount = 0;
             int removedCount = 0;
+            int availableCount = 0;
             var failureMessages = new List<string>();
 
             foreach (IPhotoSource source in enabledSources)
@@ -112,6 +113,8 @@ namespace PhotoFrame
                     downloadedCount += sourceResult.DownloadedCount;
                     reusedCount += sourceResult.ReusedCount;
                     removedCount += sourceResult.RemovedCount;
+                    availableCount += Math.Max(
+                        sourceResult.AvailableCount, sourceResult.TotalPhotoCount);
                 }
                 catch (PhotoSourceException sourceFailure)
                 {
@@ -132,6 +135,7 @@ namespace PhotoFrame
                 downloadedCount,
                 reusedCount,
                 removedCount,
+                availableCount,
                 failureMessages.Count > 0 ? string.Join(" ", failureMessages) : null);
         }
 

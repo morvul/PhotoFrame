@@ -11,6 +11,10 @@ namespace PhotoFrame
     /// файла из кэша, для папок на устройстве — только исключение из списка: сами файлы
     /// приложение не трогает.
     /// </param>
+    /// <param name="AvailableCount">
+    /// Сколько кадров нашлось до применения лимита. Больше <paramref name="TotalPhotoCount"/>
+    /// означает, что часть отброшена, и об этом нужно сказать вслух.
+    /// </param>
     /// <param name="Warning">
     /// Заполняется, когда часть источников не ответила, но показывать всё равно есть что.
     /// </param>
@@ -19,5 +23,6 @@ namespace PhotoFrame
         int DownloadedCount,
         int ReusedCount,
         int RemovedCount,
+        int AvailableCount = 0,
         string? Warning = null);
 }

@@ -76,6 +76,8 @@ namespace PhotoFrame
 
             await EnsureStoragePermissionAsync().ConfigureAwait(false);
 
+            // Никакого предела: файлы не копируются, и обрезка списка означала бы,
+            // что дальняя часть папки не покажется никогда.
             List<string> foundPhotoPaths = ScanConfiguredFolders(cancellationToken);
 
             if (foundPhotoPaths.Count == 0)
@@ -107,13 +109,13 @@ namespace PhotoFrame
             }
 
             WriteManifest(foundPhotoPaths);
-            progress?.Report((foundPhotoPaths.Count, foundPhotoPaths.Count));
 
             return new AlbumSyncResult(
                 TotalPhotoCount: foundPhotoPaths.Count,
                 DownloadedCount: addedCount,
                 ReusedCount: foundPhotoPaths.Count - addedCount,
-                RemovedCount: removedCount);
+                RemovedCount: removedCount,
+                AvailableCount: foundPhotoPaths.Count);
         }
 
         /// <summary>
@@ -132,14 +134,10 @@ namespace PhotoFrame
                 foreach (string filePath in
                          EnumeratePhotoFiles(folderPath, FrameSettings.LocalFolderRecursive))
                 {
+                    // Один и тот же файл может попасть из вложенных выборов папок.
                     if (alreadyAdded.Add(filePath))
                     {
                         foundPhotoPaths.Add(filePath);
-                    }
-
-                    if (foundPhotoPaths.Count >= AppSettings.MaxPhotosToDownload)
-                    {
-                        return foundPhotoPaths;
                     }
                 }
             }

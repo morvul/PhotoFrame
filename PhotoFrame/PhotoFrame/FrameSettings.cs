@@ -32,6 +32,7 @@ namespace PhotoFrame
         private const string VideoRepeatKey = "video_repeat";
         private const string VideoMutedKey = "video_muted";
         private const string ShowCaptureInfoKey = "show_capture_info";
+        private const string PanelRevealKey = "panel_reveal_seconds";
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
@@ -41,6 +42,9 @@ namespace PhotoFrame
 
         /// <summary>Варианты периода проверки альбома, часы.</summary>
         public static readonly int[] PollIntervalChoices = { 1, 3, 6, 12, 24 };
+
+        /// <summary>Варианты времени, через которое панель управления сама скрывается.</summary>
+        public static readonly int[] PanelRevealChoices = { 3, 5, 10, 20, 30, 60 };
 
         /// <summary>
         /// Брать снимки из общего альбома Google Photos. Может быть включено
@@ -275,6 +279,15 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(ShowCaptureInfoKey, true);
             set => Preferences.Default.Set(ShowCaptureInfoKey, value);
+        }
+
+        /// <summary>
+        /// Сколько секунд панель управления остаётся на экране после касания.
+        /// </summary>
+        public static int PanelRevealSeconds
+        {
+            get => Preferences.Default.Get(PanelRevealKey, 10);
+            set => Preferences.Default.Set(PanelRevealKey, value);
         }
 
         /// <summary>Показывать часы поверх снимка.</summary>

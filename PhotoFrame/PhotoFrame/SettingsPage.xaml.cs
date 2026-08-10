@@ -25,9 +25,22 @@ namespace PhotoFrame
             SlideshowIntervalPicker.ItemsSource = BuildSecondsChoices();
             PollIntervalPicker.ItemsSource = BuildHoursChoices();
 
+            PanelRevealPicker.ItemsSource = BuildPanelRevealChoices();
+
             string[] hourChoices = BuildHourOfDayChoices();
             NightStartPicker.ItemsSource = hourChoices;
             NightEndPicker.ItemsSource = hourChoices;
+        }
+
+        private static string[] BuildPanelRevealChoices()
+        {
+            var labels = new string[FrameSettings.PanelRevealChoices.Length];
+            for (int index = 0; index < labels.Length; index++)
+            {
+                labels[index] = FrameSettings.PanelRevealChoices[index] + " сек";
+            }
+
+            return labels;
         }
 
         /// <summary>Часы суток: индекс в списке равен самому часу.</summary>
@@ -87,6 +100,13 @@ namespace PhotoFrame
             ShowClockSwitch.IsToggled = FrameSettings.ShowClock;
             ShowDateSwitch.IsToggled = FrameSettings.ShowDate;
             ShowCaptureInfoSwitch.IsToggled = FrameSettings.ShowCaptureInfo;
+
+            PanelRevealPicker.SelectedIndex = Array.IndexOf(
+                FrameSettings.PanelRevealChoices, FrameSettings.PanelRevealSeconds);
+            if (PanelRevealPicker.SelectedIndex < 0)
+            {
+                PanelRevealPicker.SelectedIndex = 2;
+            }
 
             ShowSensorsSwitch.IsToggled = FrameSettings.ShowSensors;
             SensorPanel.IsVisible = FrameSettings.ShowSensors;
@@ -267,6 +287,12 @@ namespace PhotoFrame
             FrameSettings.ShowClock = ShowClockSwitch.IsToggled;
             FrameSettings.ShowDate = ShowDateSwitch.IsToggled;
             FrameSettings.ShowCaptureInfo = ShowCaptureInfoSwitch.IsToggled;
+
+            if (PanelRevealPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.PanelRevealSeconds =
+                    FrameSettings.PanelRevealChoices[PanelRevealPicker.SelectedIndex];
+            }
             FrameSettings.NightModeEnabled = NightModeSwitch.IsToggled;
 
             // Индекс в списке часов совпадает с самим часом.
