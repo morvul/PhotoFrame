@@ -29,10 +29,6 @@ namespace PhotoFrame
         private const double OutlineOpacity = 0.55;
 
         /// <summary>
-        /// Смещения копий текста, из которых складывается обводка. Восемь направлений
-        /// дают ровный контур; меньше — и на диагоналях появляются просветы.
-        /// </summary>
-        /// <summary>
         /// Предельная ширина строки датчиков в единицах устройства.
         /// </summary>
         /// <remarks>
@@ -41,6 +37,10 @@ namespace PhotoFrame
         /// </remarks>
         private const double SensorLineMaximumWidth = 620;
 
+        /// <summary>
+        /// Смещения копий текста, из которых складывается обводка. Восемь направлений
+        /// дают ровный контур; меньше — и на диагоналях появляются просветы.
+        /// </summary>
         private static readonly (double X, double Y)[] OutlineOffsets =
         {
             (-1, -1), (0, -1), (1, -1),
@@ -624,6 +624,96 @@ namespace PhotoFrame
 
             FileInfoPage.MediaPath = _localPhotoPaths[_currentPhotoIndex];
             await Shell.Current.GoToAsync(nameof(FileInfoPage));
+        }
+
+        /// <summary>
+        /// Убирает показанный кадр из слайд-шоу, перенося файл в корзину.
+        /// </summary>
+        /// <remarks>
+        /// Кадр запоминается до вопроса, а таймеры на это время останавливаются: иначе
+        /// слайд-шоу успело бы шагнуть дальше и в корзину уехал бы не тот файл.
+        /// </remarks>
+        private async void OnRemoveClicked(object? sender, EventArgs e)
+        {
+            if (_localPhotoPaths.Count == 0)
+            {
+                return;
+            }
+
+            string mediaPath = _localPhotoPaths[_currentPhotoIndex];
+
+            _slideshowTimer.Stop();
+            _panelHideTimer.Stop();
+
+            bool confirmed = await DisplayAlertAsync(
+                "Убрать из показа",
+                $"Файл {Path.GetFileName(mediaPath)} переедет в папку «{MediaFileScanner.TrashDirectoryName}» " +
+                "и больше не появится в слайд-шоу.",
+                "Убрать",
+                "Отмена");
+
+            if (!confirmed)
+            {
+                _panelHideTimer.Start();
+                _slideshowTimer.Start();
+                return;
+            }
+
+            // Проигрыватель держит файл открытым, и переименование под ним не пройдёт.
+            StopVideoPlayback();
+
+            try
+            {
+                await MediaTrash.MoveToTrashAsync(mediaPath).ConfigureAwait(true);
+            }
+            catch (PhotoSourceException trashFailure)
+            {
+                SetStatusText(trashFailure.Message);
+                _panelHideTimer.Start();
+                _slideshowTimer.Start();
+                return;
+            }
+
+            // Ссылка в альбоме осталась, поэтому кадр надо ещё и внести в список убранных,
+            // иначе следующая синхронизация скачает его заново.
+            if (MediaTrash.IsAlbumPhoto(mediaPath))
+            {
+                FrameSettings.AddTrashedAlbumFileName(Path.GetFileName(mediaPath));
+            }
+
+            RemoveCurrentPhotoFromShow();
+        }
+
+        /// <summary>
+        /// Выбрасывает показанный кадр из списка и переходит к следующему.
+        /// </summary>
+        /// <remarks>
+        /// Манифесты источников не переписываются: и альбом, и папки при чтении пропускают
+        /// файлы, которых нет на диске, поэтому убранный кадр не вернётся и после перезапуска.
+        /// </remarks>
+        private void RemoveCurrentPhotoFromShow()
+        {
+            int removedIndex = _currentPhotoIndex;
+            _localPhotoPaths.RemoveAt(removedIndex);
+
+            SetStatusText($"Убрано в корзину. Осталось {_localPhotoPaths.Count} фото");
+
+            if (_localPhotoPaths.Count == 0)
+            {
+                SlideshowImage.Source = null;
+                _hasCaptureInfo = false;
+                _isCurrentSlideVideo = false;
+                _currentPhotoIndex = -1;
+                UpdateTapRevealedOverlays();
+                return;
+            }
+
+            _panelHideTimer.Start();
+
+            // Прежний индекс теперь указывает на следующий кадр; ShowPhotoAt приведёт
+            // его к границам списка сам.
+            ShowPhotoAt(removedIndex);
+            _slideshowTimer.Start();
         }
 
         private async void OnSyncClicked(object? sender, EventArgs e)

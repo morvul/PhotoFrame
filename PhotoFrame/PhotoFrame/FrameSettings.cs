@@ -37,6 +37,7 @@ namespace PhotoFrame
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
+        private const string TrashedAlbumFilesKey = "trashed_album_files";
 
         /// <summary>Варианты длительности показа одного кадра, секунды.</summary>
         public static readonly int[] SlideshowIntervalChoices = { 5, 10, 15, 30, 60, 300 };
@@ -201,7 +202,7 @@ namespace PhotoFrame
         /// Значок, выбранный для датчика. Пустая строка — без значка.
         /// </summary>
         /// <remarks>
-        /// Хранится как строки "entity_id\tзначок": все три выбранных датчика могут быть
+        /// Хранится как строки "entity_id\tзначок": выбранные датчики могут все оказаться
         /// термометрами, и без значка непонятно, где какая температура.
         /// </remarks>
         public static string GetSensorIcon(string entityId)
@@ -322,6 +323,40 @@ namespace PhotoFrame
                 return storedTicks == 0 ? null : new DateTime(storedTicks, DateTimeKind.Utc);
             }
             set => Preferences.Default.Set(LastSyncKey, value?.Ticks ?? 0L);
+        }
+
+        /// <summary>
+        /// Имена файлов кадров альбома, убранных в корзину.
+        /// </summary>
+        /// <remarks>
+        /// Без этого списка кнопка «Убрать» для альбома выглядела бы сломанной: файла в
+        /// кэше нет, ссылка в альбоме осталась, и очередная синхронизация скачивала бы
+        /// снимок заново. Имя файла — хэш ссылки, поэтому список остаётся верным и после
+        /// пересоздания кэша.
+        /// </remarks>
+        public static string[] TrashedAlbumFileNames =>
+            Preferences.Default.Get(TrashedAlbumFilesKey, string.Empty)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        /// <summary>Запоминает, что кадр альбома убран, и качать его больше не нужно.</summary>
+        public static void AddTrashedAlbumFileName(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                return;
+            }
+
+            var storedNames = new List<string>(TrashedAlbumFileNames);
+            foreach (string storedName in storedNames)
+            {
+                if (storedName.Equals(fileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            storedNames.Add(fileName);
+            Preferences.Default.Set(TrashedAlbumFilesKey, string.Join('\n', storedNames));
         }
 
         /// <summary>True, если ссылка на альбом так и не задана.</summary>

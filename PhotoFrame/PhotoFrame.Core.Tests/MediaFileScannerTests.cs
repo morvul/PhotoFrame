@@ -63,6 +63,18 @@ namespace PhotoFrame.Tests
         }
 
         [Fact]
+        public void SkipsTrashDirectory()
+        {
+            // Убранный кнопкой «Убрать» кадр не должен вернуться в показ, даже если
+            // корзина оказалась внутри выбранной папки.
+            CreateFile("Camera", "photo.jpg");
+            CreateFile(MediaFileScanner.TrashDirectoryName, "removed.jpg");
+            CreateFile(MediaFileScanner.TrashDirectoryName, "Google Photos", "removed.jpg");
+
+            Assert.Equal(new[] { "Camera/photo.jpg" }, Scan(recurse: true));
+        }
+
+        [Fact]
         public void IgnoresUnsupportedExtensions()
         {
             CreateFile("photo.jpg");
@@ -118,6 +130,8 @@ namespace PhotoFrame.Tests
         [InlineData("galleryThumbnails", true)]
         [InlineData(".hidden", true)]
         [InlineData("tmp", true)]
+        [InlineData("Trash", true)]
+        [InlineData("trash", true)]
         [InlineData("Camera", false)]
         [InlineData("media", false)]
         [InlineData("Cached memories", false)]

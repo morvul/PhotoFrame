@@ -12,9 +12,19 @@ namespace PhotoFrame
     /// </remarks>
     public static class MediaFileScanner
     {
+        /// <summary>
+        /// Куда убираются кадры, снятые с показа кнопкой «Убрать».
+        /// </summary>
+        /// <remarks>
+        /// Имя вынесено сюда, а не в код рамки, именно затем, чтобы обход и корзина
+        /// не разошлись: попади корзина внутрь выбранной папки, убранные снимки
+        /// вернулись бы в слайд-шоу на следующем обновлении.
+        /// </remarks>
+        public const string TrashDirectoryName = "Trash";
+
         /// <summary>Каталоги, в которые не заходим.</summary>
         private static readonly string[] SkippedDirectoryNames =
-            { "cache", "caches", "thumbnails", "temp", "tmp" };
+            { "cache", "caches", "thumbnails", "temp", "tmp", TrashDirectoryName };
 
         /// <summary>
         /// Перечисляет медиафайлы в папке. Порядок стабильный: внутри каталога — по имени,

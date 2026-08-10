@@ -72,6 +72,16 @@ namespace PhotoFrame
         {
             List<string> photoUrls = await GetPhotoUrlsAsync(cancellationToken).ConfigureAwait(false);
 
+            // Убранное в корзину отбрасывается раньше всего: и качать заново не нужно,
+            // и в «сколько кадров в альбоме» такие снимки попадать не должны — иначе
+            // разница списывалась бы на предел загрузки.
+            RemoveTrashedPhotos(photoUrls);
+
+            if (photoUrls.Count == 0)
+            {
+                throw new PhotoSourceException("Все кадры альбома убраны в корзину.");
+            }
+
             // Лимит применяется здесь, а не при разборе страницы: так известно и сколько
             // кадров в альбоме на самом деле, и об отброшенных можно сообщить.
             int availableCount = photoUrls.Count;
@@ -301,6 +311,25 @@ namespace PhotoFrame
                 TryDeleteFile(tempPath);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Убирает из набора кадры, отправленные в корзину, и возвращает их количество.
+        /// </summary>
+        /// <remarks>
+        /// Сопоставление идёт по имени файла в кэше, то есть по хэшу ссылки: сама ссылка
+        /// в списке убранных не хранится — она длинная, а имя файла и так однозначно.
+        /// </remarks>
+        private static int RemoveTrashedPhotos(List<string> photoUrls)
+        {
+            string[] trashedFileNames = FrameSettings.TrashedAlbumFileNames;
+            if (trashedFileNames.Length == 0)
+            {
+                return 0;
+            }
+
+            var trashedSet = new HashSet<string>(trashedFileNames, StringComparer.OrdinalIgnoreCase);
+            return photoUrls.RemoveAll(photoUrl => trashedSet.Contains(BuildCacheFileName(photoUrl)));
         }
 
         /// <summary>Имя файла в кэше — короткий хэш ссылки на снимок.</summary>

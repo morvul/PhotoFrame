@@ -209,6 +209,18 @@
                         HeightRequest="56"
                         CornerRadius="28" />
 
+                <!-- Убрать кадр из показа. Спрашивает подтверждение: соседняя кнопка —
+                     настройки, и промах не должен стоить снимка. -->
+                <Button x:Name="RemoveButton"
+                        Text="🗑"
+                        Clicked="OnRemoveClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontSize="22"
+                        WidthRequest="56"
+                        HeightRequest="56"
+                        CornerRadius="28" />
+
                 <Button x:Name="SettingsButton"
                         Text="⚙"
                         Clicked="OnSettingsClicked"

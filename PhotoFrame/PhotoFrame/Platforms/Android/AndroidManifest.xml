@@ -8,6 +8,10 @@
 	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 	<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
+	<!-- Запись нужна одной кнопке: «Убрать» переносит файл в папку Trash в общей памяти.
+	     На API 33+ разрешение больше не выдаётся, но и не требуется для своего каталога. -->
+	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
 	<!--
 		Активности здесь НЕ объявляются вручную. Атрибут [Activity] в MainActivity.cs
 		генерирует Java-класс со скрамблированным именем (crc64...MainActivity), поэтому
