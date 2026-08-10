@@ -188,7 +188,7 @@ namespace PhotoFrame
                 // Тот же обход, что и у самого источника, поэтому счётчики здесь совпадают
                 // с тем, что реально попадёт в слайд-шоу: каталоги с миниатюрами пропущены.
                 foreach (string filePath in
-                         LocalFolderPhotoSource.EnumeratePhotoFiles(directoryPath, recurse: true))
+                         MediaFileScanner.EnumerateMediaFiles(directoryPath, recurse: true))
                 {
                     if (++inspectedCount > ImageCountScanLimit)
                     {

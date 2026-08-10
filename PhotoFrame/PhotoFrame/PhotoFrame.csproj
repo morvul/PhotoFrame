@@ -74,6 +74,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- Платформенно-независимая логика, покрытая тестами. -->
+		<ProjectReference Include="..\PhotoFrame.Core\PhotoFrame.Core.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<!-- Шаблон не компилируется, но должен быть виден в обозревателе решений. -->
 		<None Include="secrets.props.template" />
 	</ItemGroup>

@@ -21,18 +21,6 @@ namespace PhotoFrame
     {
         private const string ManifestFileName = "local.manifest";
 
-        /// <summary>
-        /// Каталоги, которые пропускаются при обходе.
-        /// </summary>
-        /// <remarks>
-        /// Приложения хранят рядом с фотографиями миниатюры: у Frameo, например, в
-        /// frameo_files/cache/galleryThumbnails лежит 151 превью по ~19 КБ против 66
-        /// полноразмерных снимков в frameo_files/media. Без этого фильтра слайд-шоу
-        /// на две трети состояло из размытых миниатюр.
-        /// </remarks>
-        private static readonly string[] SkippedDirectoryNames =
-            { "cache", "caches", "thumbnails", "temp", "tmp" };
-
         /// <inheritdoc />
         public bool IsConfigured => FrameSettings.LocalFolderPaths.Length > 0;
 
@@ -132,7 +120,7 @@ namespace PhotoFrame
                 cancellationToken.ThrowIfCancellationRequested();
 
                 foreach (string filePath in
-                         EnumeratePhotoFiles(folderPath, FrameSettings.LocalFolderRecursive))
+                         MediaFileScanner.EnumerateMediaFiles(folderPath, FrameSettings.LocalFolderRecursive))
                 {
                     // Один и тот же файл может попасть из вложенных выборов папок.
                     if (alreadyAdded.Add(filePath))
@@ -143,109 +131,6 @@ namespace PhotoFrame
             }
 
             return foundPhotoPaths;
-        }
-
-        /// <summary>
-        /// Перечисляет изображения в папке, пропуская служебные каталоги с миниатюрами.
-        /// </summary>
-        /// <remarks>
-        /// Обход написан вручную, а не через SearchOption.AllDirectories, именно ради
-        /// возможности не заходить в отдельные подкаталоги. Этим же методом пользуется
-        /// экран выбора папок, поэтому показанные там счётчики совпадают с тем,
-        /// что реально попадёт в слайд-шоу.
-        /// </remarks>
-        public static IEnumerable<string> EnumeratePhotoFiles(string rootPath, bool recurse)
-        {
-            if (!Directory.Exists(rootPath))
-            {
-                yield break;
-            }
-
-            var pendingDirectories = new Stack<string>();
-            pendingDirectories.Push(rootPath);
-
-            while (pendingDirectories.Count > 0)
-            {
-                string currentDirectory = pendingDirectories.Pop();
-
-                string[] filePaths;
-                try
-                {
-                    filePaths = Directory.GetFiles(currentDirectory);
-                }
-                catch (Exception scanFailure) when (
-                    scanFailure is IOException or UnauthorizedAccessException)
-                {
-                    // Недоступный каталог не должен ломать обход остальных.
-                    System.Diagnostics.Debug.WriteLine(
-                        $"Каталог {currentDirectory} не прочитан: {scanFailure.Message}");
-                    continue;
-                }
-
-                Array.Sort(filePaths, StringComparer.OrdinalIgnoreCase);
-
-                foreach (string filePath in filePaths)
-                {
-                    if (MediaFileTypes.IsSupportedMedia(filePath))
-                    {
-                        yield return filePath;
-                    }
-                }
-
-                if (!recurse)
-                {
-                    continue;
-                }
-
-                string[] subdirectories;
-                try
-                {
-                    subdirectories = Directory.GetDirectories(currentDirectory);
-                }
-                catch (Exception scanFailure) when (
-                    scanFailure is IOException or UnauthorizedAccessException)
-                {
-                    continue;
-                }
-
-                Array.Sort(subdirectories, StringComparer.OrdinalIgnoreCase);
-
-                // Кладём в стек в обратном порядке, чтобы обход шёл по алфавиту.
-                for (int index = subdirectories.Length - 1; index >= 0; index--)
-                {
-                    if (!ShouldSkipDirectory(subdirectories[index]))
-                    {
-                        pendingDirectories.Push(subdirectories[index]);
-                    }
-                }
-            }
-        }
-
-        /// <summary>Каталоги с миниатюрами и кэшем в слайд-шоу не нужны.</summary>
-        private static bool ShouldSkipDirectory(string directoryPath)
-        {
-            string directoryName = Path.GetFileName(directoryPath);
-
-            // Скрытые каталоги вроде .thumbnails создаёт сама система.
-            if (directoryName.StartsWith('.'))
-            {
-                return true;
-            }
-
-            if (directoryName.Contains("thumbnail", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            foreach (string skippedName in SkippedDirectoryNames)
-            {
-                if (directoryName.Equals(skippedName, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         /// <summary>

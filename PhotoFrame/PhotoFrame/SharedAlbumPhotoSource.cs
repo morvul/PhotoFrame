@@ -4,7 +4,6 @@ using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Maui.Storage;
@@ -28,7 +27,7 @@ namespace PhotoFrame
     /// Кэш адресуется содержимым ссылки: имя файла — хэш токена снимка. Поэтому при
     /// добавлении пары кадров в альбом качаются только они, а не весь набор заново.
     /// </remarks>
-    public partial class SharedAlbumPhotoSource : IPhotoSource
+    public class SharedAlbumPhotoSource : IPhotoSource
     {
         private const string PhotoDirectoryName = "photos";
 
@@ -36,15 +35,6 @@ namespace PhotoFrame
         private const string ManifestFileName = "album.manifest";
 
         private const string AlbumSignatureKey = "shared_album_signature";
-
-        /// <summary>
-        /// Прямые ссылки на снимки в странице альбома выглядят как
-        /// https://lh3.googleusercontent.com/pw/&lt;токен&gt;.
-        /// Аватары авторов лежат на /a/ и под шаблон не попадают.
-        /// </summary>
-        [GeneratedRegex(@"https://lh\d+\.googleusercontent\.com/pw/[A-Za-z0-9_-]+",
-            RegexOptions.CultureInvariant)]
-        private static partial Regex PhotoUrlPattern();
 
         private readonly HttpClient _httpClient;
 
@@ -124,18 +114,7 @@ namespace PhotoFrame
             string albumPageHtml = await FetchAlbumPageAsync(
                 FrameSettings.SharedAlbumUrl, cancellationToken).ConfigureAwait(false);
 
-            // Обложка альбома дублирует один из снимков, поэтому нужен Distinct
-            // с сохранением порядка появления.
-            var seenUrls = new HashSet<string>(StringComparer.Ordinal);
-            var photoUrls = new List<string>();
-
-            foreach (Match match in PhotoUrlPattern().Matches(albumPageHtml))
-            {
-                if (seenUrls.Add(match.Value))
-                {
-                    photoUrls.Add(match.Value);
-                }
-            }
+            List<string> photoUrls = AlbumPhotoUrlExtractor.Extract(albumPageHtml);
 
             if (photoUrls.Count == 0)
             {

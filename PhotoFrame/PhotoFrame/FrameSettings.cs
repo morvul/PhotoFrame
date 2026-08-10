@@ -170,17 +170,7 @@ namespace PhotoFrame
         /// </remarks>
         public static bool IsNightHour(int hour)
         {
-            int startHour = NightStartHour;
-            int endHour = NightEndHour;
-
-            if (startHour == endHour)
-            {
-                return false;
-            }
-
-            return startHour < endHour
-                ? hour >= startHour && hour < endHour
-                : hour >= startHour || hour < endHour;
+            return NightSchedule.IsNightHour(hour, NightStartHour, NightEndHour);
         }
 
         /// <summary>Показывать значения датчиков Home Assistant поверх снимка.</summary>
