@@ -155,26 +155,73 @@ namespace PhotoFrame
                 : $"Последнее обновление: {lastSyncUtc.Value.ToLocalTime():dd.MM.yyyy HH:mm}";
 
             StorageLabel.Text = DescribeFreeSpace();
+            CacheSizeLabel.Text = DescribePhotoCacheSize();
             VersionLabel.Text = $"Версия {AppInfo.Current.VersionString} ({AppInfo.Current.BuildString})";
         }
 
+        /// <summary>
+        /// Свободное место в разделе, где приложение хранит скачанные снимки.
+        /// </summary>
+        /// <remarks>
+        /// Через DriveInfo это посчитать нельзя: Path.GetPathRoot на Unix возвращает "/",
+        /// а корень на Android — крошечный rootfs (здесь 0,45 ГБ) и к /data отношения не
+        /// имеет. Получалось, что рамка с 14 ГБ свободного места сообщала о почти полном
+        /// диске. StatFs считает именно тот раздел, в котором лежит переданный путь.
+        /// </remarks>
         private static string DescribeFreeSpace()
         {
             try
             {
-                var appDataDrive = new DriveInfo(
-                    Path.GetPathRoot(FileSystem.AppDataDirectory) ?? "/");
+                var storageStats = new Android.OS.StatFs(FileSystem.AppDataDirectory);
 
-                double freeGigabytes = appDataDrive.AvailableFreeSpace / 1024d / 1024d / 1024d;
+                double freeGigabytes = storageStats.AvailableBytes / 1024d / 1024d / 1024d;
+                double totalGigabytes = storageStats.TotalBytes / 1024d / 1024d / 1024d;
+
                 return string.Format(
-                    CultureInfo.CurrentCulture, "Свободно на устройстве: {0:F1} ГБ", freeGigabytes);
+                    CultureInfo.CurrentCulture,
+                    "Свободно в памяти рамки: {0:F1} из {1:F1} ГБ",
+                    freeGigabytes,
+                    totalGigabytes);
             }
-            catch (Exception driveQueryFailure) when (
-                driveQueryFailure is IOException or UnauthorizedAccessException or ArgumentException)
+            catch (Exception storageQueryFailure) when (
+                storageQueryFailure is Java.Lang.Throwable or IOException
+                    or UnauthorizedAccessException)
             {
-                // Размер диска — справочная информация, из-за неё экран настроек падать не должен.
+                // Справочная строка не должна ронять экран настроек.
                 return "Свободное место: неизвестно";
             }
+        }
+
+        /// <summary>
+        /// Сколько занимает кэш скачанных снимков. Снимки из локальных папок не копируются
+        /// и в этот размер не входят.
+        /// </summary>
+        private static string DescribePhotoCacheSize()
+        {
+            string cacheDirectory = SharedAlbumPhotoSource.PhotoLibraryDirectory;
+            if (!Directory.Exists(cacheDirectory))
+            {
+                return "Кэш скачанных снимков: пуст";
+            }
+
+            long totalBytes = 0;
+            try
+            {
+                foreach (string filePath in Directory.EnumerateFiles(cacheDirectory))
+                {
+                    totalBytes += new FileInfo(filePath).Length;
+                }
+            }
+            catch (Exception sizeQueryFailure) when (
+                sizeQueryFailure is IOException or UnauthorizedAccessException)
+            {
+                return "Кэш скачанных снимков: размер неизвестен";
+            }
+
+            return string.Format(
+                CultureInfo.CurrentCulture,
+                "Кэш скачанных снимков: {0:F0} МБ",
+                totalBytes / 1024d / 1024d);
         }
 
         private void ApplySettings()

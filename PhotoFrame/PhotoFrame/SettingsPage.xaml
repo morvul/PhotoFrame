@@ -191,6 +191,7 @@
                     <Label x:Name="PhotoCountLabel" TextColor="LightGray" FontSize="14" />
                     <Label x:Name="LastSyncLabel" TextColor="LightGray" FontSize="14" />
                     <Label x:Name="StorageLabel" TextColor="LightGray" FontSize="14" />
+                    <Label x:Name="CacheSizeLabel" TextColor="LightGray" FontSize="14" />
                     <Label x:Name="VersionLabel" TextColor="Gray" FontSize="13" />
                 </VerticalStackLayout>
 
