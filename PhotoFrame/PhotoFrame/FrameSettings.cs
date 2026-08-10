@@ -181,8 +181,8 @@ namespace PhotoFrame
         }
 
         /// <summary>
-        /// Выбранные датчики в порядке показа. Ограничение по количеству задаёт
-        /// <see cref="HomeAssistantClient.MaxDisplayedSensors"/>.
+        /// Выбранные датчики в порядке показа. Количество не ограничено: строка с
+        /// показаниями переносится по словам.
         /// </summary>
         public static string[] SensorEntityIds
         {

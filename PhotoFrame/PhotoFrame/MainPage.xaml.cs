@@ -32,6 +32,15 @@ namespace PhotoFrame
         /// Смещения копий текста, из которых складывается обводка. Восемь направлений
         /// дают ровный контур; меньше — и на диагоналях появляются просветы.
         /// </summary>
+        /// <summary>
+        /// Предельная ширина строки датчиков в единицах устройства.
+        /// </summary>
+        /// <remarks>
+        /// Примерно половина ширины экрана рамки (1280): дальше показания начинают
+        /// перечёркивать середину кадра, а перенос по словам оставляет их у своего угла.
+        /// </remarks>
+        private const double SensorLineMaximumWidth = 620;
+
         private static readonly (double X, double Y)[] OutlineOffsets =
         {
             (-1, -1), (0, -1), (1, -1),
@@ -127,6 +136,14 @@ namespace PhotoFrame
             _statusLabels = BuildOutlinedText(
                 StatusHost, fontSize: 14, isBold: false, Color.FromArgb("#D3D3D3"),
                 DateOutlineWidth);
+
+            // Датчиков можно выбрать сколько угодно, поэтому строка с показаниями
+            // переносится по словам и не уезжает за край экрана.
+            foreach (Label sensorLabel in _sensorLabels)
+            {
+                sensorLabel.LineBreakMode = LineBreakMode.WordWrap;
+                sensorLabel.MaximumWidthRequest = SensorLineMaximumWidth;
+            }
 
             // Статус выровнен по центру под кнопкой, в отличие от остальных подписей.
             foreach (Label statusLabel in _statusLabels)
@@ -497,6 +514,17 @@ namespace PhotoFrame
             ClockOverlay.HorizontalOptions = horizontal;
             ClockOverlay.VerticalOptions = vertical;
             ClockOverlay.Margin = margin;
+
+            // В правых углах перенесённая строка датчиков должна прижиматься к правому
+            // краю блока, иначе вторая строка висит с отступом от края экрана.
+            TextAlignment sensorAlignment = horizontal.Alignment == LayoutAlignment.End
+                ? TextAlignment.End
+                : TextAlignment.Start;
+
+            foreach (Label sensorLabel in _sensorLabels)
+            {
+                sensorLabel.HorizontalTextAlignment = sensorAlignment;
+            }
         }
 
         /// <summary>

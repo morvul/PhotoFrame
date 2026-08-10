@@ -67,7 +67,7 @@ namespace PhotoFrame
                 StatusLabel.Text = sensors.Count == 0
                     ? "Home Assistant не вернул ни одного датчика с числовым значением."
                     : $"Найдено датчиков: {sensors.Count}. " +
-                      $"Можно выбрать до {HomeAssistantClient.MaxDisplayedSensors}.";
+                      "Отметьте любое количество — они выводятся в порядке выбора.";
             }
             catch (PhotoSourceException requestFailure)
             {
@@ -93,21 +93,8 @@ namespace PhotoFrame
             }
             else
             {
-                // Больше трёх значений начинают спорить со снимком, поэтому вытесняем
-                // самый давний выбор вместо молчаливого отказа.
-                if (_selectedEntityIds.Count >= HomeAssistantClient.MaxDisplayedSensors)
-                {
-                    string evictedEntityId = _selectedEntityIds[0];
-                    _selectedEntityIds.RemoveAt(0);
-
-                    HomeAssistantSensor? evicted =
-                        _sensors.FirstOrDefault(candidate => candidate.EntityId == evictedEntityId);
-                    if (evicted is not null)
-                    {
-                        evicted.IsSelected = false;
-                    }
-                }
-
+                // Количество не ограничено: сколько значений уместно на экране, решает
+                // сам пользователь, а строка датчиков переносится по словам.
                 _selectedEntityIds.Add(sensor.EntityId);
                 sensor.IsSelected = true;
             }
@@ -143,8 +130,7 @@ namespace PhotoFrame
 
         private void UpdateSelectionSummary()
         {
-            SelectionSummaryLabel.Text =
-                $"Выбрано: {_selectedEntityIds.Count} из {HomeAssistantClient.MaxDisplayedSensors}";
+            SelectionSummaryLabel.Text = $"Выбрано датчиков: {_selectedEntityIds.Count}";
 
             if (_selectedEntityIds.Count == 0)
             {

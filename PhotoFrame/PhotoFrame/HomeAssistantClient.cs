@@ -21,8 +21,16 @@ namespace PhotoFrame
     /// </remarks>
     public class HomeAssistantClient
     {
-        /// <summary>Сколько датчиков разрешено показывать одновременно.</summary>
-        public const int MaxDisplayedSensors = 3;
+        /// <summary>
+        /// От какого количества выбранных датчиков выгоднее один запрос всех состояний,
+        /// чем по запросу на каждую сущность.
+        /// </summary>
+        /// <remarks>
+        /// Порог грубый: ответ /api/states — это состояние всего дома (десятки килобайт),
+        /// а запрос одной сущности стоит ещё и обращения по сети. На пяти датчиках расходы
+        /// примерно равны, дальше выигрывает пакетное чтение.
+        /// </remarks>
+        private const int BulkReadThreshold = 5;
 
         private readonly HttpClient _httpClient;
 
@@ -116,14 +124,21 @@ namespace PhotoFrame
         /// Читает текущие значения выбранных датчиков в порядке, заданном пользователем.
         /// </summary>
         /// <remarks>
-        /// Запрашивается каждая сущность по отдельности: для двух-трёх датчиков это
-        /// заметно дешевле, чем тянуть состояние всего дома.
+        /// Пока датчиков мало, каждая сущность запрашивается отдельно: это дешевле, чем
+        /// тянуть состояние всего дома. С длинным списком выгоднее наоборот — один запрос
+        /// вместо десятка обращений по сети, см. <see cref="BulkReadThreshold"/>.
         /// </remarks>
         public async Task<List<(string EntityId, string Text)>> ReadSensorValuesAsync(
             IReadOnlyList<string> entityIds,
             CancellationToken cancellationToken = default)
         {
             EnsureConfigured();
+
+            if (entityIds.Count >= BulkReadThreshold)
+            {
+                return await ReadSensorValuesInBulkAsync(entityIds, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             var formattedValues = new List<(string EntityId, string Text)>(entityIds.Count);
 
@@ -148,6 +163,51 @@ namespace PhotoFrame
                     // Один недоступный датчик не должен убирать с экрана остальные.
                     System.Diagnostics.Debug.WriteLine(
                         $"Датчик {entityId} не прочитан: {singleSensorFailure.Message}");
+                }
+            }
+
+            return formattedValues;
+        }
+
+        /// <summary>
+        /// Читает значения одним запросом всех состояний, сохраняя порядок выбора.
+        /// </summary>
+        /// <remarks>
+        /// Датчики, которых в ответе нет (сущность удалили или переименовали), просто
+        /// пропускаются: остальные значения показать всё равно нужно.
+        /// </remarks>
+        private async Task<List<(string EntityId, string Text)>> ReadSensorValuesInBulkAsync(
+            IReadOnlyList<string> entityIds,
+            CancellationToken cancellationToken)
+        {
+            using JsonDocument statesDocument =
+                await GetJsonAsync("/api/states", cancellationToken).ConfigureAwait(false);
+
+            var requestedIds = new HashSet<string>(entityIds, StringComparer.OrdinalIgnoreCase);
+            var valuesByEntityId = new Dictionary<string, string>(
+                entityIds.Count, StringComparer.OrdinalIgnoreCase);
+
+            foreach (JsonElement entity in statesDocument.RootElement.EnumerateArray())
+            {
+                HomeAssistantSensor? sensor = TryReadSensor(entity);
+                if (sensor is not null && requestedIds.Contains(sensor.EntityId))
+                {
+                    valuesByEntityId[sensor.EntityId] = sensor.ValueWithUnit;
+                }
+            }
+
+            var formattedValues = new List<(string EntityId, string Text)>(entityIds.Count);
+
+            foreach (string entityId in entityIds)
+            {
+                if (valuesByEntityId.TryGetValue(entityId, out string? valueWithUnit))
+                {
+                    formattedValues.Add((entityId, valueWithUnit));
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Датчик {entityId} отсутствует в ответе Home Assistant.");
                 }
             }
 
