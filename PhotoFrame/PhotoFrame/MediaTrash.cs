@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Android.Media;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Storage;
 
@@ -88,6 +89,7 @@ namespace PhotoFrame
 
                 string targetPath = BuildFreeTargetPath(targetDirectory, mediaPath);
                 MoveFile(mediaPath, targetPath);
+                NotifyMediaScanner(mediaPath, targetPath);
                 return targetPath;
             }
             catch (Exception moveFailure) when (
@@ -96,6 +98,35 @@ namespace PhotoFrame
             {
                 throw new PhotoSourceException(
                     $"Не удалось убрать файл в корзину: {moveFailure.Message}", moveFailure);
+            }
+        }
+
+        /// <summary>
+        /// Сообщает системе об исчезнувшем и появившемся файле.
+        /// </summary>
+        /// <remarks>
+        /// MTP отдаёт компьютеру не файловую систему, а индекс MediaStore, и обычное
+        /// переименование его не обновляет: файл лежит в корзине, но по USB его не видно,
+        /// а по старому пути остаётся запись, из-за которой галереи показывают снимок,
+        /// которого там уже нет. Разбор старого пути как раз убирает запись: сканер
+        /// удаляет из индекса то, чего на диске не нашлось.
+        /// </remarks>
+        private static void NotifyMediaScanner(string vanishedPath, string createdPath)
+        {
+            try
+            {
+                MediaScannerConnection.ScanFile(
+                    Android.App.Application.Context,
+                    new[] { vanishedPath, createdPath },
+                    null,
+                    null);
+            }
+            catch (Exception scanFailure) when (scanFailure is Java.Lang.Throwable)
+            {
+                // Файл уже в корзине — это главное. Без индекса он лишь не появится
+                // по USB до следующего обхода сканера.
+                System.Diagnostics.Debug.WriteLine(
+                    $"Сканер не оповещён о {createdPath}: {scanFailure.Message}");
             }
         }
 
