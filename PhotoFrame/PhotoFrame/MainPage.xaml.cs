@@ -75,6 +75,7 @@ namespace PhotoFrame
         private readonly List<Label> _clockDateLabels;
         private readonly List<Label> _sensorLabels;
         private readonly List<Label> _captureInfoLabels;
+        private readonly List<Label> _photoCounterLabels;
         private readonly List<Label> _statusLabels;
 
         private readonly HomeAssistantClient _homeAssistantClient;
@@ -132,6 +133,9 @@ namespace PhotoFrame
                 SensorHost, fontSize: 24, isBold: true, Color.FromArgb("#BFEFFF"), DateOutlineWidth);
             _captureInfoLabels = BuildOutlinedText(
                 CaptureInfoHost, fontSize: 17, isBold: false, Color.FromArgb("#D6D6D6"),
+                DateOutlineWidth);
+            _photoCounterLabels = BuildOutlinedText(
+                PhotoCounterHost, fontSize: 17, isBold: false, Color.FromArgb("#D6D6D6"),
                 DateOutlineWidth);
             _statusLabels = BuildOutlinedText(
                 StatusHost, fontSize: 14, isBold: false, Color.FromArgb("#D3D3D3"),
@@ -517,16 +521,43 @@ namespace PhotoFrame
             ClockOverlay.VerticalOptions = vertical;
             ClockOverlay.Margin = margin;
 
-            // В правых углах перенесённая строка датчиков должна прижиматься к правому
-            // краю блока, иначе вторая строка висит с отступом от края экрана.
-            TextAlignment sensorAlignment = horizontal.Alignment == LayoutAlignment.End
-                ? TextAlignment.End
-                : TextAlignment.Start;
+            ApplyClockContentAlignment(horizontal.Alignment == LayoutAlignment.End);
+        }
 
-            foreach (Label sensorLabel in _sensorLabels)
+        /// <summary>
+        /// Разворачивает содержимое блока часов к тому краю, у которого он стоит.
+        /// </summary>
+        /// <remarks>
+        /// Ширину блока задаёт самая длинная строка — время. В правых углах дата и
+        /// показания датчиков оказывались прижаты к её левому краю, то есть висели с
+        /// отступом от края экрана. Небольшие отступы строк тоже зеркалятся, иначе
+        /// в правых углах они отодвигают текст не от края, а от времени.
+        /// </remarks>
+        private void ApplyClockContentAlignment(bool alignToRight)
+        {
+            TextAlignment textAlignment = alignToRight ? TextAlignment.End : TextAlignment.Start;
+            LayoutOptions hostAlignment = alignToRight ? LayoutOptions.End : LayoutOptions.Start;
+
+            foreach (List<Label> labels in
+                     new[] { _clockTimeLabels, _clockDateLabels, _sensorLabels })
             {
-                sensorLabel.HorizontalTextAlignment = sensorAlignment;
+                foreach (Label label in labels)
+                {
+                    label.HorizontalTextAlignment = textAlignment;
+                }
             }
+
+            ClockTimeHost.HorizontalOptions = hostAlignment;
+            ClockDateHost.HorizontalOptions = hostAlignment;
+            SensorHost.HorizontalOptions = hostAlignment;
+
+            ClockDateHost.Margin = alignToRight
+                ? new Thickness(0, -8, 4, 0)
+                : new Thickness(4, -8, 0, 0);
+
+            SensorHost.Margin = alignToRight
+                ? new Thickness(0, 4, 4, 0)
+                : new Thickness(4, 4, 0, 0);
         }
 
         /// <summary>
@@ -822,14 +853,44 @@ namespace PhotoFrame
                 : $"{statusText}. {syncResult.Warning}";
         }
 
+        /// <summary>
+        /// Перечитывает список кадров, задавая порядок показа.
+        /// </summary>
+        /// <remarks>
+        /// Порядок при случайном показе создаётся ровно один раз — в момент обновления
+        /// набора. Пока набор тот же, список и текущее место сохраняются: иначе возврат
+        /// с экрана настроек или из сведений о файле пересоздавал бы порядок, и шаг назад
+        /// приводил к кадрам, которых в этом показе ещё не было.
+        /// </remarks>
         private void LoadPhotosFromCache()
         {
-            _localPhotoPaths = _photoSource.GetPhotoPaths();
-            _currentPhotoIndex = -1;
+            List<string> loadedPhotoPaths = _photoSource.GetPhotoPaths();
 
-            if (FrameSettings.ShufflePhotos)
+            // Сравнение строит множество из трёх тысяч путей, поэтому считается один раз.
+            bool sameSet = HasSamePhotoSet(loadedPhotoPaths);
+
+            if (sameSet && _currentPhotoIndex >= 0)
             {
-                ShufflePhotoOrder(_localPhotoPaths);
+                // Набор тот же — показ продолжается с того же кадра. Таймер при уходе
+                // со страницы останавливается, поэтому его нужно завести снова.
+                if (_isNightModeActive != true && !_isVideoPlaying)
+                {
+                    _slideshowTimer.Stop();
+                    _slideshowTimer.Start();
+                }
+
+                return;
+            }
+
+            if (!sameSet)
+            {
+                _localPhotoPaths = loadedPhotoPaths;
+                _currentPhotoIndex = -1;
+
+                if (FrameSettings.ShufflePhotos)
+                {
+                    ShufflePhotoOrder(_localPhotoPaths);
+                }
             }
 
             // Ночью слайд-шоу не крутится: новые снимки подхватятся утром.
@@ -841,6 +902,28 @@ namespace PhotoFrame
 
             ShowNextPhoto();
             _slideshowTimer.Start();
+        }
+
+        /// <summary>
+        /// True, если набор кадров совпадает с показываемым — без учёта порядка.
+        /// </summary>
+        private bool HasSamePhotoSet(List<string> loadedPhotoPaths)
+        {
+            if (loadedPhotoPaths.Count != _localPhotoPaths.Count)
+            {
+                return false;
+            }
+
+            var shownPaths = new HashSet<string>(_localPhotoPaths, StringComparer.OrdinalIgnoreCase);
+            foreach (string loadedPath in loadedPhotoPaths)
+            {
+                if (!shownPaths.Contains(loadedPath))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>Перемешивание Фишера — Йетса по месту.</summary>
@@ -867,12 +950,9 @@ namespace PhotoFrame
                 return;
             }
 
-            // Новый круг — новый порядок, иначе перемешивание видно только один раз.
-            if (FrameSettings.ShufflePhotos && _currentPhotoIndex + 1 >= _localPhotoPaths.Count)
-            {
-                ShufflePhotoOrder(_localPhotoPaths);
-            }
-
+            // Порядок не пересоздаётся на новом круге: иначе шаг назад после последнего
+            // кадра уводил бы в уже другую случайную последовательность. Новый порядок
+            // появляется вместе с новым набором снимков — см. LoadPhotosFromCache.
             ShowPhotoAt(_currentPhotoIndex + 1);
         }
 
@@ -893,6 +973,11 @@ namespace PhotoFrame
 
             string mediaPath = _localPhotoPaths[_currentPhotoIndex];
             int photoGeneration = ++_photoGeneration;
+
+            // Имя файла слева от счётчика: сам счётчик остаётся прижатым к углу.
+            SetOutlinedText(
+                _photoCounterLabels,
+                $"{Path.GetFileName(mediaPath)}  ·  {_currentPhotoIndex + 1}/{photoCount}");
 
             // Сразу переставляем часы по кругу: если разбор снимка не удастся или
             // затянется, надпись всё равно не останется на прежнем месте.
@@ -1007,6 +1092,9 @@ namespace PhotoFrame
 
             VideoControls.IsVisible = _isCurrentSlideVideo && isDayTime && panelVisible;
             CaptureInfoHost.IsVisible = _hasCaptureInfo && isDayTime && panelVisible;
+
+            PhotoCounterHost.IsVisible =
+                _localPhotoPaths.Count > 0 && _currentPhotoIndex >= 0 && isDayTime && panelVisible;
 
             PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
             RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;
