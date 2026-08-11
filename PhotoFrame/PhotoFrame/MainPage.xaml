@@ -181,24 +181,31 @@
         -->
         <Grid x:Name="ControlPanel"
               VerticalOptions="Start"
-              ColumnDefinitions="*,Auto"
-              Padding="20,16">
+              ColumnDefinitions="Auto,*,Auto"
+              Padding="20,16"
+              ColumnSpacing="14">
 
-            <VerticalStackLayout Grid.Column="0" HorizontalOptions="Center" Spacing="8">
-                <Button x:Name="SyncButton"
-                        Text="Обновить фото"
-                        Clicked="OnSyncClicked"
-                        BackgroundColor="#80000000"
-                        TextColor="White"
-                        FontAttributes="Bold"
-                        Padding="20,10"
-                        CornerRadius="10"/>
+            <!-- Обновление и так идёт само, кнопка нужна лишь чтобы не ждать очередной
+                 проверки, — поэтому значок, а не надпись. -->
+            <Button Grid.Column="0"
+                    x:Name="SyncButton"
+                    Text="🔄"
+                    Clicked="OnSyncClicked"
+                    BackgroundColor="#80000000"
+                    TextColor="White"
+                    FontSize="22"
+                    WidthRequest="56"
+                    HeightRequest="56"
+                    CornerRadius="28"
+                    VerticalOptions="Start" />
 
-                <!-- Статус лежит поверх снимка, поэтому тоже с обводкой. -->
-                <Grid x:Name="StatusHost" HorizontalOptions="Center" />
-            </VerticalStackLayout>
+            <!-- Статус лежит поверх снимка, поэтому тоже с обводкой. -->
+            <Grid Grid.Column="1"
+                  x:Name="StatusHost"
+                  HorizontalOptions="Start"
+                  VerticalOptions="Center" />
 
-            <HorizontalStackLayout Grid.Column="1" Spacing="10" VerticalOptions="Start">
+            <HorizontalStackLayout Grid.Column="2" Spacing="10" VerticalOptions="Start">
                 <Button x:Name="FileInfoButton"
                         Text="ℹ"
                         Clicked="OnFileInfoClicked"

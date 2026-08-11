@@ -145,10 +145,12 @@ namespace PhotoFrame
                 sensorLabel.MaximumWidthRequest = SensorLineMaximumWidth;
             }
 
-            // Статус выровнен по центру под кнопкой, в отличие от остальных подписей.
+            // Статус стоит справа от кнопки обновления, поэтому прижат к её краю
+            // и переносится по словам: строка бывает длинной.
             foreach (Label statusLabel in _statusLabels)
             {
-                statusLabel.HorizontalTextAlignment = TextAlignment.Center;
+                statusLabel.HorizontalTextAlignment = TextAlignment.Start;
+                statusLabel.LineBreakMode = LineBreakMode.WordWrap;
             }
 
             _homeAssistantClient =
