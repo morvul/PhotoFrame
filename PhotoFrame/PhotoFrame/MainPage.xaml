@@ -223,12 +223,6 @@
                     CornerRadius="28"
                     VerticalOptions="Start" />
 
-            <!-- Статус лежит поверх снимка, поэтому тоже с обводкой. -->
-            <Grid Grid.Column="1"
-                  x:Name="StatusHost"
-                  HorizontalOptions="Start"
-                  VerticalOptions="Center" />
-
             <HorizontalStackLayout Grid.Column="2" Spacing="10" VerticalOptions="Start">
                 <Button x:Name="FileInfoButton"
                         Text="ℹ"
@@ -263,5 +257,34 @@
                         CornerRadius="28" />
             </HorizontalStackLayout>
         </Grid>
+
+        <!--
+            Всплывающее сообщение. Живёт отдельно от панели управления: о результате
+            обновления и об ошибках нужно узнавать, не касаясь экрана. Объявлено последним,
+            то есть лежит выше остальных слоёв.
+
+            Свой, а не системный Toast: у системного мелкий текст, который с дивана
+            не прочитать, да и сообщения здесь бывают длинными.
+        -->
+        <Border x:Name="ToastPanel"
+                IsVisible="False"
+                InputTransparent="True"
+                HorizontalOptions="Center"
+                VerticalOptions="End"
+                Margin="0,0,0,64"
+                Padding="22,14"
+                BackgroundColor="#B0000000"
+                StrokeThickness="0">
+            <Border.StrokeShape>
+                <RoundRectangle CornerRadius="14" />
+            </Border.StrokeShape>
+
+            <Label x:Name="ToastLabel"
+                   TextColor="White"
+                   FontSize="18"
+                   LineBreakMode="WordWrap"
+                   MaximumWidthRequest="900"
+                   HorizontalTextAlignment="Center" />
+        </Border>
     </Grid>
 </ContentPage>

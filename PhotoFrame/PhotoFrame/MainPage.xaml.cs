@@ -70,13 +70,15 @@ namespace PhotoFrame
         /// <summary>Опрос позиции воспроизведения: у VideoView нет события о прогрессе.</summary>
         private readonly System.Timers.Timer _videoProgressTimer;
 
+        /// <summary>Гасит всплывающее сообщение.</summary>
+        private readonly System.Timers.Timer _toastHideTimer;
+
         /// <summary>Копии текста времени: восемь для обводки плюс одна основная.</summary>
         private readonly List<Label> _clockTimeLabels;
         private readonly List<Label> _clockDateLabels;
         private readonly List<Label> _sensorLabels;
         private readonly List<Label> _captureInfoLabels;
         private readonly List<Label> _photoCounterLabels;
-        private readonly List<Label> _statusLabels;
 
         private readonly HomeAssistantClient _homeAssistantClient;
 
@@ -144,9 +146,6 @@ namespace PhotoFrame
             _photoCounterLabels = BuildOutlinedText(
                 PhotoCounterHost, fontSize: 17, isBold: false, Color.FromArgb("#D6D6D6"),
                 DateOutlineWidth);
-            _statusLabels = BuildOutlinedText(
-                StatusHost, fontSize: 14, isBold: false, Color.FromArgb("#D3D3D3"),
-                DateOutlineWidth);
 
             // Датчиков можно выбрать сколько угодно, поэтому строка с показаниями
             // переносится по словам и не уезжает за край экрана.
@@ -154,14 +153,6 @@ namespace PhotoFrame
             {
                 sensorLabel.LineBreakMode = LineBreakMode.WordWrap;
                 sensorLabel.MaximumWidthRequest = SensorLineMaximumWidth;
-            }
-
-            // Статус стоит справа от кнопки обновления, поэтому прижат к её краю
-            // и переносится по словам: строка бывает длинной.
-            foreach (Label statusLabel in _statusLabels)
-            {
-                statusLabel.HorizontalTextAlignment = TextAlignment.Start;
-                statusLabel.LineBreakMode = LineBreakMode.WordWrap;
             }
 
             _homeAssistantClient =
@@ -190,6 +181,13 @@ namespace PhotoFrame
             // примерно на 4 px за такт, дробить мельче незачем.
             _videoProgressTimer = new System.Timers.Timer(500) { AutoReset = true };
             _videoProgressTimer.Elapsed += OnVideoProgressTimerElapsed;
+
+            // Пяти секунд хватает, чтобы прочитать строку вроде «Обновлено: 468 фото».
+            _toastHideTimer = new System.Timers.Timer(TimeSpan.FromSeconds(5).TotalMilliseconds)
+            {
+                AutoReset = false,
+            };
+            _toastHideTimer.Elapsed += OnToastHideTimerElapsed;
 
             VideoPlayer.PlaybackFinished += OnVideoPlaybackFinished;
         }
@@ -233,7 +231,41 @@ namespace PhotoFrame
             return labels;
         }
 
-        private void SetStatusText(string text) => SetOutlinedText(_statusLabels, text);
+        /// <summary>
+        /// Показывает всплывающее сообщение и гасит его через несколько секунд.
+        /// </summary>
+        /// <remarks>
+        /// Сообщение живёт отдельно от панели управления: результат обновления и ошибки
+        /// должны быть видны без касания экрана, но и оставаться на снимке навсегда им
+        /// незачем. Ночью сообщения не показываются — весь смысл ночного режима в том,
+        /// чтобы экран не светил.
+        /// </remarks>
+        private void ShowToast(string text)
+        {
+            if (_isNightModeActive == true)
+            {
+                return;
+            }
+
+            ToastLabel.Text = text;
+            ToastPanel.Opacity = 1;
+            ToastPanel.IsVisible = true;
+
+            // Каждое новое сообщение продлевает показ: во время загрузки они идут чередой.
+            _toastHideTimer.Stop();
+            _toastHideTimer.Start();
+        }
+
+        private void OnToastHideTimerElapsed(object? sender, ElapsedEventArgs e)
+        {
+            MainThread.BeginInvokeOnMainThread(async () =>
+            {
+                // Плавное угасание: резкое исчезновение надписи поверх снимка заметнее,
+                // чем само сообщение.
+                await ToastPanel.FadeToAsync(0, 400).ConfigureAwait(true);
+                ToastPanel.IsVisible = false;
+            });
+        }
 
         private static void SetOutlinedText(List<Label> labels, string text)
         {
@@ -818,7 +850,7 @@ namespace PhotoFrame
             }
             catch (PhotoSourceException trashFailure)
             {
-                SetStatusText(trashFailure.Message);
+                ShowToast(trashFailure.Message);
                 _panelHideTimer.Start();
                 _slideshowTimer.Start();
                 return;
@@ -846,7 +878,7 @@ namespace PhotoFrame
             int removedIndex = _currentPhotoIndex;
             _localPhotoPaths.RemoveAt(removedIndex);
 
-            SetStatusText($"Убрано в корзину. Осталось {_localPhotoPaths.Count} фото");
+            ShowToast($"Убрано в корзину. Осталось {_localPhotoPaths.Count} фото");
 
             if (_localPhotoPaths.Count == 0)
             {
@@ -895,13 +927,13 @@ namespace PhotoFrame
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     SyncButton.IsEnabled = false;
-                    SetStatusText("Проверка источников...");
+                    ShowToast("Проверка источников...");
                 });
 
                 // Прогресс приходит только от альбома: локальные папки ничего не качают,
                 // и писать "Загрузка" про обход файлов было бы неправдой.
                 var downloadProgress = new Progress<(int Completed, int Total)>(progress =>
-                    SetStatusText($"Загрузка из альбома: {progress.Completed} из {progress.Total}..."));
+                    ShowToast($"Загрузка из альбома: {progress.Completed} из {progress.Total}..."));
 
                 AlbumSyncResult syncResult = await _photoSource
                     .RefreshAsync(forceDownload, downloadProgress)
@@ -913,19 +945,19 @@ namespace PhotoFrame
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     LoadPhotosFromCache();
-                    SetStatusText(DescribeSyncResult(syncResult, checkedAtUtc.ToLocalTime()));
+                    ShowToast(DescribeSyncResult(syncResult, checkedAtUtc.ToLocalTime()));
                 });
             }
             catch (PhotoSourceException syncFailure)
             {
                 // Причина показывается на экране: у рамки нет консоли, и это
                 // единственный канал диагностики для пользователя.
-                await MainThread.InvokeOnMainThreadAsync(() => SetStatusText(syncFailure.Message));
+                await MainThread.InvokeOnMainThreadAsync(() => ShowToast(syncFailure.Message));
             }
             catch (Exception unexpectedFailure)
             {
                 await MainThread.InvokeOnMainThreadAsync(() =>
-                    SetStatusText("Непредвиденная ошибка обновления."));
+                    ShowToast("Непредвиденная ошибка обновления."));
                 System.Diagnostics.Debug.WriteLine(unexpectedFailure);
             }
             finally
