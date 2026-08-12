@@ -93,6 +93,15 @@ namespace PhotoFrame
         /// <summary>Индекс показанного сейчас кадра. -1 — ещё ничего не показано.</summary>
         private int _currentPhotoIndex = -1;
 
+        /// <summary>
+        /// Сохранённый порядок показа уже пробовали восстановить.
+        /// </summary>
+        /// <remarks>
+        /// Попытка ровно одна, при первой загрузке: дальше набор меняют обновления
+        /// источников, и продолжать прежнюю последовательность уже незачем.
+        /// </remarks>
+        private bool _hasTriedRestoringOrder;
+
         private int _clockPositionIndex;
 
         /// <summary>Ночной режим сейчас активен. null — состояние ещё не определялось.</summary>
@@ -878,6 +887,9 @@ namespace PhotoFrame
             int removedIndex = _currentPhotoIndex;
             _localPhotoPaths.RemoveAt(removedIndex);
 
+            // Порядок изменился — сохранённый список без этого стал бы неприменим целиком.
+            SlideshowStateStore.SaveOrder(_localPhotoPaths);
+
             ShowToast($"Убрано в корзину. Осталось {_localPhotoPaths.Count} фото");
 
             if (_localPhotoPaths.Count == 0)
@@ -1037,14 +1049,29 @@ namespace PhotoFrame
                 return;
             }
 
+            int restoredIndex = -1;
+
             if (!sameSet)
             {
                 _localPhotoPaths = loadedPhotoPaths;
                 _currentPhotoIndex = -1;
 
-                if (FrameSettings.ShufflePhotos)
+                // При первой загрузке пробуем продолжить с того же кадра и в том же
+                // порядке, что были до выключения рамки.
+                if (!_hasTriedRestoringOrder)
                 {
-                    ShufflePhotoOrder(_localPhotoPaths);
+                    _hasTriedRestoringOrder = true;
+                    restoredIndex = SlideshowStateStore.TryRestoreOrder(_localPhotoPaths);
+                }
+
+                if (restoredIndex < 0)
+                {
+                    if (FrameSettings.ShufflePhotos)
+                    {
+                        ShufflePhotoOrder(_localPhotoPaths);
+                    }
+
+                    SlideshowStateStore.SaveOrder(_localPhotoPaths);
                 }
             }
 
@@ -1055,7 +1082,15 @@ namespace PhotoFrame
                 return;
             }
 
-            ShowNextPhoto();
+            if (restoredIndex >= 0)
+            {
+                ShowPhotoAt(restoredIndex);
+            }
+            else
+            {
+                ShowNextPhoto();
+            }
+
             _slideshowTimer.Start();
         }
 
@@ -1128,6 +1163,9 @@ namespace PhotoFrame
 
             string mediaPath = _localPhotoPaths[_currentPhotoIndex];
             int photoGeneration = ++_photoGeneration;
+
+            // Чтобы после включения рамки показ продолжился с этого же кадра.
+            SlideshowStateStore.SaveLastShown(mediaPath);
 
             // Источник или имя файла слева от счётчика: сам счётчик остаётся прижатым
             // к углу. Кадр альбома назван хэшем ссылки, и такое имя не говорит ничего —

@@ -206,7 +206,7 @@ namespace PhotoFrame
             if (LaunchDelayPicker.SelectedIndex < 0)
             {
                 LaunchDelayPicker.SelectedIndex =
-                    Array.IndexOf(FrameSettings.LaunchOnBootDelayChoices, 30);
+                    Array.IndexOf(FrameSettings.LaunchOnBootDelayChoices, 10);
             }
 
             ShowDiagnostics();
@@ -214,6 +214,26 @@ namespace PhotoFrame
 
         private void OnLaunchOnBootToggled(object? sender, ToggledEventArgs e) =>
             LaunchDelayPanel.IsVisible = LaunchOnBootSwitch.IsToggled;
+
+        /// <summary>
+        /// Раскрывает и сворачивает раздел настроек.
+        /// </summary>
+        /// <remarks>
+        /// Раздел передаётся через CommandParameter, поэтому обработчик один на все
+        /// заголовки и знать о них ничего не должен. Значок раскрытия — первый символ
+        /// подписи, так что менять его можно, не трогая сам заголовок.
+        /// </remarks>
+        private static void OnSectionHeaderClicked(object? sender, EventArgs e)
+        {
+            if (sender is not Button header || header.CommandParameter is not VisualElement section)
+            {
+                return;
+            }
+
+            bool expanding = !section.IsVisible;
+            section.IsVisible = expanding;
+            header.Text = (expanding ? '▾' : '▸') + header.Text[1..];
+        }
 
         /// <summary>Настройки источника показываются только когда сам источник включён.</summary>
         private void UpdateSourcePanels()

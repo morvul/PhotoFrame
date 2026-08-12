@@ -372,7 +372,7 @@ namespace PhotoFrame
         /// </remarks>
         public static int LaunchOnBootDelaySeconds
         {
-            get => Preferences.Default.Get(LaunchOnBootDelayKey, 30);
+            get => Preferences.Default.Get(LaunchOnBootDelayKey, 10);
             set => Preferences.Default.Set(LaunchOnBootDelayKey, value);
         }
 
