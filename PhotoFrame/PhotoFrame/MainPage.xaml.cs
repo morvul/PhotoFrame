@@ -359,6 +359,8 @@ namespace PhotoFrame
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
             ClockDateHost.IsVisible = FrameSettings.ShowDate;
 
+            ApplyNightClockAppearance();
+
             // Расписание могли изменить в настройках — пересчитываем режим с нуля.
             _isNightModeActive = null;
 
@@ -463,6 +465,27 @@ namespace PhotoFrame
         }
 
         /// <summary>
+        /// Красит резервные метки ночных часов так же, как рисованный кадр.
+        /// </summary>
+        /// <remarks>
+        /// Метки видны, только если отрисовка кадра не удалась, но выглядеть при этом
+        /// они должны так же: иначе сбой заодно менял бы цвет и яркость часов.
+        /// </remarks>
+        private void ApplyNightClockAppearance()
+        {
+            var clockColor = Color.FromArgb(FrameSettings.NightClockColorHex);
+            double brightness =
+                Math.Clamp(FrameSettings.NightClockBrightnessPercent, 1, 100) / 100d;
+
+            NightTimeLabel.TextColor = clockColor;
+            NightDateLabel.TextColor = clockColor;
+
+            // Половина: шахматная маска рисованного кадра гасит каждый второй пиксель,
+            // а у обычных меток такой маски нет.
+            NightFallbackClock.Opacity = brightness / 2;
+        }
+
+        /// <summary>
         /// Перерисовывает ночные часы, когда изменилась минута, и сдвигает шахматную маску.
         /// </summary>
         private async Task RefreshNightClockAsync(string formattedTime, string formattedDate)
@@ -491,8 +514,12 @@ namespace PhotoFrame
 
             try
             {
+                string colorHex = FrameSettings.NightClockColorHex;
+                int brightnessPercent = FrameSettings.NightClockBrightnessPercent;
+
                 byte[] pngBytes = await Task.Run(() => NightClockRenderer.RenderPng(
-                    widthPixels, heightPixels, formattedTime, formattedDate, phaseShifted))
+                    widthPixels, heightPixels, formattedTime, formattedDate, phaseShifted,
+                    colorHex, brightnessPercent))
                     .ConfigureAwait(true);
 
                 NightClockImage.Source = ImageSource.FromStream(() => new MemoryStream(pngBytes));

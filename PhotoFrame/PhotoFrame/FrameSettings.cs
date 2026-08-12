@@ -26,6 +26,8 @@ namespace PhotoFrame
         private const string NightModeKey = "night_mode_enabled";
         private const string NightStartHourKey = "night_start_hour";
         private const string NightEndHourKey = "night_end_hour";
+        private const string NightClockColorKey = "night_clock_color";
+        private const string NightClockBrightnessKey = "night_clock_brightness";
         private const string ShowSensorsKey = "show_sensors";
         private const string SensorEntityIdsKey = "sensor_entity_ids";
         private const string SensorIconsKey = "sensor_icons";
@@ -47,6 +49,9 @@ namespace PhotoFrame
 
         /// <summary>Варианты времени, через которое панель управления сама скрывается.</summary>
         public static readonly int[] PanelRevealChoices = { 3, 5, 10, 20, 30, 60 };
+
+        /// <summary>Варианты яркости ночных часов, проценты.</summary>
+        public static readonly int[] NightClockBrightnessChoices = { 10, 20, 30, 45, 60, 80, 100 };
 
         /// <summary>
         /// Варианты предела на число скачиваемых из альбома кадров. 0 — без предела.
@@ -160,6 +165,31 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(NightEndHourKey, 7);
             set => Preferences.Default.Set(NightEndHourKey, value);
+        }
+
+        /// <summary>
+        /// Цвет ночных часов. Значение всегда из <see cref="NightClockPalette"/>.
+        /// </summary>
+        public static string NightClockColorHex
+        {
+            get => NightClockPalette.ResolveHex(
+                Preferences.Default.Get(NightClockColorKey, NightClockPalette.DefaultHex));
+
+            set => Preferences.Default.Set(
+                NightClockColorKey, NightClockPalette.ResolveHex(value));
+        }
+
+        /// <summary>
+        /// Яркость ночных часов в процентах от полной.
+        /// </summary>
+        /// <remarks>
+        /// Это яркость самого рисунка; шахматная маска гасит половину пикселей поверх
+        /// неё, поэтому 60% на экране выглядят примерно как 30% от белого.
+        /// </remarks>
+        public static int NightClockBrightnessPercent
+        {
+            get => Preferences.Default.Get(NightClockBrightnessKey, 60);
+            set => Preferences.Default.Set(NightClockBrightnessKey, value);
         }
 
         /// <summary>

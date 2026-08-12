@@ -29,12 +29,6 @@ namespace PhotoFrame
         private const float DateSizeFraction = 0.13f;
 
         /// <summary>
-        /// Прозрачность рисунка. Вместе с шахматной маской, гасящей половину пикселей,
-        /// даёт итоговую яркость около 30% от белого.
-        /// </summary>
-        private const int ClockAlpha = 160;
-
-        /// <summary>
         /// Готовит PNG с часами. Вызывать в фоновом потоке: кодирование кадра
         /// 1280x800 на такой рамке занимает заметное время.
         /// </summary>
@@ -42,18 +36,25 @@ namespace PhotoFrame
         /// Сдвигает шахматную маску на один пиксель — при каждом обновлении времени
         /// светятся уже другие пиксели.
         /// </param>
+        /// <param name="colorHex">Цвет часов из <see cref="NightClockPalette"/>.</param>
+        /// <param name="brightnessPercent">
+        /// Яркость рисунка в процентах. Шахматная маска гасит половину пикселей поверх
+        /// этого значения, поэтому итоговая яркость примерно вдвое ниже.
+        /// </param>
         public static byte[] RenderPng(
             int widthPixels,
             int heightPixels,
             string timeText,
             string? dateText,
-            bool phaseShifted)
+            bool phaseShifted,
+            string colorHex,
+            int brightnessPercent)
         {
             using Bitmap frame = Bitmap.CreateBitmap(widthPixels, heightPixels, Bitmap.Config.Argb8888!)!;
             using var canvas = new Canvas(frame);
             canvas.DrawColor(AndroidColor.Black);
 
-            using Bitmap checkerPattern = CreateCheckerPattern();
+            using Bitmap checkerPattern = CreateCheckerPattern(colorHex);
             using var checkerShader = new BitmapShader(
                 checkerPattern, Shader.TileMode.Repeat!, Shader.TileMode.Repeat!);
 
@@ -68,7 +69,7 @@ namespace PhotoFrame
             using var textPaint = new AndroidPaint(PaintFlags.AntiAlias)
             {
                 TextAlign = AndroidPaint.Align.Center,
-                Alpha = ClockAlpha,
+                Alpha = ToAlpha(brightnessPercent),
             };
 
             textPaint.SetShader(checkerShader);
@@ -116,19 +117,40 @@ namespace PhotoFrame
                 : probeSize * (targetWidth / measuredWidth);
         }
 
+        /// <summary>Проценты яркости в прозрачность краски.</summary>
+        private static int ToAlpha(int brightnessPercent) =>
+            System.Math.Clamp(brightnessPercent, 1, 100) * 255 / 100;
+
         /// <summary>
         /// Плитка 2x2, в которой светятся только пиксели по диагонали.
         /// </summary>
-        private static Bitmap CreateCheckerPattern()
+        private static Bitmap CreateCheckerPattern(string colorHex)
         {
             Bitmap pattern = Bitmap.CreateBitmap(2, 2, Bitmap.Config.Argb8888!)!;
+            AndroidColor litColor = ParseColor(colorHex);
 
-            pattern.SetPixel(0, 0, AndroidColor.Aquamarine);
-            pattern.SetPixel(1, 1, AndroidColor.Aqua);
+            pattern.SetPixel(0, 0, litColor);
+            pattern.SetPixel(1, 1, litColor);
             pattern.SetPixel(1, 0, AndroidColor.Transparent);
             pattern.SetPixel(0, 1, AndroidColor.Transparent);
 
             return pattern;
+        }
+
+        /// <summary>
+        /// Разбирает код цвета. Значение приходит из настроек, поэтому непонятное
+        /// заменяется цветом по умолчанию, а не роняет отрисовку.
+        /// </summary>
+        private static AndroidColor ParseColor(string colorHex)
+        {
+            try
+            {
+                return AndroidColor.ParseColor(NightClockPalette.ResolveHex(colorHex));
+            }
+            catch (Java.Lang.IllegalArgumentException)
+            {
+                return AndroidColor.ParseColor(NightClockPalette.DefaultHex);
+            }
         }
     }
 }

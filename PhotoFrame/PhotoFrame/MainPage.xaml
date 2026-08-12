@@ -84,7 +84,8 @@
                 кадр с шахматной маской готов; если отрисовка почему-то не удалась,
                 часы всё равно видны.
             -->
-            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center"
+            <VerticalStackLayout x:Name="NightFallbackClock"
+                                 VerticalOptions="Center" HorizontalOptions="Center"
                                  Spacing="2" Opacity="0.32">
                 <Label x:Name="NightTimeLabel"
                        TextColor="White"

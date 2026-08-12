@@ -31,6 +31,9 @@ namespace PhotoFrame
             string[] hourChoices = BuildHourOfDayChoices();
             NightStartPicker.ItemsSource = hourChoices;
             NightEndPicker.ItemsSource = hourChoices;
+
+            NightColorPicker.ItemsSource = NightClockPalette.BuildChoiceLabels();
+            NightBrightnessPicker.ItemsSource = BuildBrightnessChoices();
         }
 
         /// <summary>0 в списке означает «без предела».</summary>
@@ -52,6 +55,17 @@ namespace PhotoFrame
             for (int index = 0; index < labels.Length; index++)
             {
                 labels[index] = FrameSettings.PanelRevealChoices[index] + " сек";
+            }
+
+            return labels;
+        }
+
+        private static string[] BuildBrightnessChoices()
+        {
+            var labels = new string[FrameSettings.NightClockBrightnessChoices.Length];
+            for (int index = 0; index < labels.Length; index++)
+            {
+                labels[index] = FrameSettings.NightClockBrightnessChoices[index] + " %";
             }
 
             return labels;
@@ -137,6 +151,20 @@ namespace PhotoFrame
             NightModeSwitch.IsToggled = FrameSettings.NightModeEnabled;
             NightStartPicker.SelectedIndex = FrameSettings.NightStartHour;
             NightEndPicker.SelectedIndex = FrameSettings.NightEndHour;
+
+            NightColorPicker.SelectedIndex =
+                NightClockPalette.IndexOfHex(FrameSettings.NightClockColorHex);
+
+            NightBrightnessPicker.SelectedIndex = Array.IndexOf(
+                FrameSettings.NightClockBrightnessChoices,
+                FrameSettings.NightClockBrightnessPercent);
+
+            if (NightBrightnessPicker.SelectedIndex < 0)
+            {
+                // Сохранено значение не из списка — показываем ближайший разумный вариант.
+                NightBrightnessPicker.SelectedIndex = Array.IndexOf(
+                    FrameSettings.NightClockBrightnessChoices, 60);
+            }
 
             SlideshowIntervalPicker.SelectedIndex = Array.IndexOf(
                 FrameSettings.SlideshowIntervalChoices, FrameSettings.SlideshowIntervalSeconds);
@@ -332,6 +360,18 @@ namespace PhotoFrame
             if (NightEndPicker.SelectedIndex >= 0)
             {
                 FrameSettings.NightEndHour = NightEndPicker.SelectedIndex;
+            }
+
+            if (NightColorPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.NightClockColorHex =
+                    NightClockPalette.Choices[NightColorPicker.SelectedIndex].Hex;
+            }
+
+            if (NightBrightnessPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.NightClockBrightnessPercent =
+                    FrameSettings.NightClockBrightnessChoices[NightBrightnessPicker.SelectedIndex];
             }
 
             if (SlideshowIntervalPicker.SelectedIndex >= 0)

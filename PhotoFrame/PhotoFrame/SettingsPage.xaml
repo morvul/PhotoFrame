@@ -244,6 +244,28 @@
                             TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E" />
                 </Grid>
 
+                <Grid ColumnDefinitions="*,220" ColumnSpacing="12">
+                    <VerticalStackLayout Grid.Column="0">
+                        <Label Text="Цвет ночных часов" TextColor="White" FontSize="16" />
+                        <Label Text="Оттенки подобраны так, чтобы читаться на чёрном"
+                               TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+                    <Picker Grid.Column="1" x:Name="NightColorPicker"
+                            TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
+                            VerticalOptions="Center" />
+                </Grid>
+
+                <Grid ColumnDefinitions="*,220" ColumnSpacing="12">
+                    <VerticalStackLayout Grid.Column="0">
+                        <Label Text="Яркость ночных часов" TextColor="White" FontSize="16" />
+                        <Label Text="Шахматная маска гасит половину пикселей поверх этого значения"
+                               TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+                    <Picker Grid.Column="1" x:Name="NightBrightnessPicker"
+                            TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
+                            VerticalOptions="Center" />
+                </Grid>
+
                 <!-- ================= О программе ================= -->
                 <Label Text="О ПРОГРАММЕ" TextColor="#4FC3F7" FontSize="13" FontAttributes="Bold" CharacterSpacing="2" />
 
