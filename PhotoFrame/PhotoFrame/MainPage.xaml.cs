@@ -974,10 +974,15 @@ namespace PhotoFrame
             string mediaPath = _localPhotoPaths[_currentPhotoIndex];
             int photoGeneration = ++_photoGeneration;
 
-            // Имя файла слева от счётчика: сам счётчик остаётся прижатым к углу.
+            // Источник или имя файла слева от счётчика: сам счётчик остаётся прижатым
+            // к углу. Кадр альбома назван хэшем ссылки, и такое имя не говорит ничего —
+            // куда полезнее знать, что снимок пришёл из Google Photos.
+            string frameLabel = MediaTrash.IsAlbumPhoto(mediaPath)
+                ? "Google Photos"
+                : Path.GetFileName(mediaPath);
+
             SetOutlinedText(
-                _photoCounterLabels,
-                $"{Path.GetFileName(mediaPath)}  ·  {_currentPhotoIndex + 1}/{photoCount}");
+                _photoCounterLabels, $"{frameLabel}  ·  {_currentPhotoIndex + 1}/{photoCount}");
 
             // Сразу переставляем часы по кругу: если разбор снимка не удастся или
             // затянется, надпись всё равно не останется на прежнем месте.

@@ -123,8 +123,8 @@ namespace PhotoFrame
         {
             Bitmap pattern = Bitmap.CreateBitmap(2, 2, Bitmap.Config.Argb8888!)!;
 
-            pattern.SetPixel(0, 0, AndroidColor.White);
-            pattern.SetPixel(1, 1, AndroidColor.White);
+            pattern.SetPixel(0, 0, AndroidColor.Aquamarine);
+            pattern.SetPixel(1, 1, AndroidColor.Aqua);
             pattern.SetPixel(1, 0, AndroidColor.Transparent);
             pattern.SetPixel(0, 1, AndroidColor.Transparent);
 
