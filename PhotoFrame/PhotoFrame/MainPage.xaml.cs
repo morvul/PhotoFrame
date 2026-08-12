@@ -102,6 +102,9 @@ namespace PhotoFrame
         /// <summary>Текущая фаза шахматной маски ночных часов.</summary>
         private bool _nightMaskPhaseShifted;
 
+        /// <summary>Показанный сейчас кадр ночных часов. Освобождается при подмене.</summary>
+        private Android.Graphics.Bitmap? _nightClockFrame;
+
         /// <summary>Растёт на каждом кадре: отбрасывает анализ устаревшего снимка.</summary>
         private int _photoGeneration;
 
@@ -451,7 +454,7 @@ namespace PhotoFrame
             }
 
             // Кадр 1280x800 незачем держать в памяти днём.
-            NightClockImage.Source = null;
+            ReleaseNightClockFrame();
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
 
             if (_localPhotoPaths.Count == 0)
@@ -517,12 +520,13 @@ namespace PhotoFrame
                 string colorHex = FrameSettings.NightClockColorHex;
                 int brightnessPercent = FrameSettings.NightClockBrightnessPercent;
 
-                byte[] pngBytes = await Task.Run(() => NightClockRenderer.RenderPng(
-                    widthPixels, heightPixels, formattedTime, formattedDate, phaseShifted,
-                    colorHex, brightnessPercent))
+                Android.Graphics.Bitmap renderedFrame = await Task.Run(
+                    () => NightClockRenderer.RenderBitmap(
+                        widthPixels, heightPixels, formattedTime, formattedDate, phaseShifted,
+                        colorHex, brightnessPercent))
                     .ConfigureAwait(true);
 
-                NightClockImage.Source = ImageSource.FromStream(() => new MemoryStream(pngBytes));
+                ShowNightClockFrame(renderedFrame);
             }
             catch (Exception renderFailure)
             {
@@ -530,6 +534,47 @@ namespace PhotoFrame
                 System.Diagnostics.Debug.WriteLine($"Ночные часы не отрисованы: {renderFailure}");
                 _lastRenderedNightMinute = null;
             }
+        }
+
+        /// <summary>
+        /// Показывает готовый кадр ночных часов, подменяя картинку без пропадания.
+        /// </summary>
+        /// <remarks>
+        /// Кадр отдаётся платформенному ImageView напрямую: свойство Source в MAUI
+        /// загружается асинхронно и на это время гасит картинку, из-за чего на смене
+        /// минуты экран мигал чёрным. SetImageBitmap подменяет содержимое в том же
+        /// кадре отрисовки. Предыдущий кадр освобождается только после подмены — пока
+        /// он на экране, освобождать его нельзя.
+        /// </remarks>
+        private void ShowNightClockFrame(Android.Graphics.Bitmap renderedFrame)
+        {
+            if (NightClockImage.Handler?.PlatformView is not Android.Widget.ImageView imageView)
+            {
+                // Обработчик ещё не создан — кадр покажется на следующей минуте,
+                // а до тех сейчас видны резервные метки.
+                renderedFrame.Dispose();
+                _lastRenderedNightMinute = null;
+                return;
+            }
+
+            Android.Graphics.Bitmap? previousFrame = _nightClockFrame;
+
+            imageView.SetImageBitmap(renderedFrame);
+            _nightClockFrame = renderedFrame;
+
+            previousFrame?.Dispose();
+        }
+
+        /// <summary>Убирает кадр ночных часов и освобождает память под ним.</summary>
+        private void ReleaseNightClockFrame()
+        {
+            if (NightClockImage.Handler?.PlatformView is Android.Widget.ImageView imageView)
+            {
+                imageView.SetImageBitmap(null);
+            }
+
+            _nightClockFrame?.Dispose();
+            _nightClockFrame = null;
         }
 
         /// <summary>Переставляет часы в следующий угол — по одному шагу на кадр.</summary>
@@ -817,12 +862,13 @@ namespace PhotoFrame
                     .RefreshAsync(forceDownload, downloadProgress)
                     .ConfigureAwait(true);
 
-                FrameSettings.LastSyncUtc = DateTime.UtcNow;
+                DateTime checkedAtUtc = DateTime.UtcNow;
+                FrameSettings.LastSyncUtc = checkedAtUtc;
 
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     LoadPhotosFromCache();
-                    SetStatusText(DescribeSyncResult(syncResult));
+                    SetStatusText(DescribeSyncResult(syncResult, checkedAtUtc.ToLocalTime()));
                 });
             }
             catch (PhotoSourceException syncFailure)
@@ -848,12 +894,17 @@ namespace PhotoFrame
         /// Текст статуса. Отдельно показывает, сколько кадров пришлось качать, — так видно,
         /// что повторная синхронизация не перекачивает всё заново.
         /// </summary>
-        private static string DescribeSyncResult(AlbumSyncResult syncResult)
+        private static string DescribeSyncResult(AlbumSyncResult syncResult, DateTime checkedAtLocal)
         {
             string statusText;
             if (syncResult.DownloadedCount == 0 && syncResult.RemovedCount == 0)
             {
-                statusText = $"Без изменений: {syncResult.TotalPhotoCount} фото";
+                // Со временем проверки видно, что рамка действительно сходила к источнику:
+                // без него «Без изменений» неотличимо от строки, висящей с прошлого раза.
+                string checkedAt = checkedAtLocal.ToString(
+                    "dd.MM HH:mm", CultureInfo.CurrentCulture);
+
+                statusText = $"Без изменений ({checkedAt}): {syncResult.TotalPhotoCount} фото";
             }
             else
             {

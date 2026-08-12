@@ -29,9 +29,17 @@ namespace PhotoFrame
         private const float DateSizeFraction = 0.13f;
 
         /// <summary>
-        /// Готовит PNG с часами. Вызывать в фоновом потоке: кодирование кадра
-        /// 1280x800 на такой рамке занимает заметное время.
+        /// Рисует кадр с часами. Вызывать в фоновом потоке: отрисовка кадра 1280x800
+        /// на такой рамке занимает заметное время.
         /// </summary>
+        /// <remarks>
+        /// Возвращается именно <see cref="Bitmap"/>, а не PNG: страница отдаёт его
+        /// платформенному ImageView напрямую. Через ImageSource.FromStream кадр
+        /// приходилось кодировать, а затем декодировать заново, и на время загрузки
+        /// MAUI гасил картинку — на смене минуты экран заметно мигал чёрным.
+        ///
+        /// Владелец кадра — вызывающий код: он же его и освобождает.
+        /// </remarks>
         /// <param name="phaseShifted">
         /// Сдвигает шахматную маску на один пиксель — при каждом обновлении времени
         /// светятся уже другие пиксели.
@@ -41,7 +49,7 @@ namespace PhotoFrame
         /// Яркость рисунка в процентах. Шахматная маска гасит половину пикселей поверх
         /// этого значения, поэтому итоговая яркость примерно вдвое ниже.
         /// </param>
-        public static byte[] RenderPng(
+        public static Bitmap RenderBitmap(
             int widthPixels,
             int heightPixels,
             string timeText,
@@ -50,7 +58,7 @@ namespace PhotoFrame
             string colorHex,
             int brightnessPercent)
         {
-            using Bitmap frame = Bitmap.CreateBitmap(widthPixels, heightPixels, Bitmap.Config.Argb8888!)!;
+            Bitmap frame = Bitmap.CreateBitmap(widthPixels, heightPixels, Bitmap.Config.Argb8888!)!;
             using var canvas = new Canvas(frame);
             canvas.DrawColor(AndroidColor.Black);
 
@@ -100,9 +108,7 @@ namespace PhotoFrame
                 canvas.DrawText(dateText!, centreX, timeBaselineY + dateBlockHeight, textPaint);
             }
 
-            using var pngStream = new System.IO.MemoryStream();
-            frame.Compress(Bitmap.CompressFormat.Png!, 100, pngStream);
-            return pngStream.ToArray();
+            return frame;
         }
 
         /// <summary>Подбирает размер шрифта так, чтобы строка заняла нужную ширину.</summary>
