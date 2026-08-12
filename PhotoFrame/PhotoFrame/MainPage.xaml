@@ -209,21 +209,23 @@
               Padding="20,16"
               ColumnSpacing="14">
 
-            <!-- Обновление и так идёт само, кнопка нужна лишь чтобы не ждать очередной
-                 проверки, — поэтому значок, а не надпись. -->
-            <Button Grid.Column="0"
-                    x:Name="SyncButton"
-                    Text="🔄"
-                    Clicked="OnSyncClicked"
-                    BackgroundColor="#80000000"
-                    TextColor="White"
-                    FontSize="22"
-                    WidthRequest="56"
-                    HeightRequest="56"
-                    CornerRadius="28"
-                    VerticalOptions="Start" />
+            <!--
+                Столбик у левого края: обновление, сведения о файле и «убрать». Значки,
+                а не надписи, — обновление и так идёт само, кнопка лишь избавляет
+                от ожидания очередной проверки.
+            -->
+            <VerticalStackLayout Grid.Column="0" Spacing="10" VerticalOptions="Start">
+                <Button x:Name="SyncButton"
+                        Text="🔄"
+                        Clicked="OnSyncClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontSize="22"
+                        WidthRequest="56"
+                        HeightRequest="56"
+                        CornerRadius="28"
+                        HorizontalOptions="Start" />
 
-            <HorizontalStackLayout Grid.Column="2" Spacing="10" VerticalOptions="Start">
                 <Button x:Name="FileInfoButton"
                         Text="ℹ"
                         Clicked="OnFileInfoClicked"
@@ -232,20 +234,61 @@
                         FontSize="22"
                         WidthRequest="56"
                         HeightRequest="56"
-                        CornerRadius="28" />
+                        CornerRadius="28"
+                        HorizontalOptions="Start" />
 
-                <!-- Убрать кадр из показа. Спрашивает подтверждение: соседняя кнопка —
-                     настройки, и промах не должен стоить снимка. -->
-                <Button x:Name="RemoveButton"
-                        Text="🗑"
-                        Clicked="OnRemoveClicked"
-                        BackgroundColor="#80000000"
-                        TextColor="White"
-                        FontSize="22"
-                        WidthRequest="56"
-                        HeightRequest="56"
-                        CornerRadius="28" />
+                <!--
+                    Убрать кадр из показа. Подтверждение выезжает вправо от самой кнопки:
+                    системный диалог перекрывал снимок целиком, а спросить всё равно надо —
+                    промах по кнопке не должен стоить снимка.
+                -->
+                <HorizontalStackLayout Spacing="12">
+                    <Button x:Name="RemoveButton"
+                            Text="🗑"
+                            Clicked="OnRemoveClicked"
+                            BackgroundColor="#80000000"
+                            TextColor="White"
+                            FontSize="22"
+                            WidthRequest="56"
+                            HeightRequest="56"
+                            CornerRadius="28" />
 
+                    <Border x:Name="RemoveConfirmPanel"
+                            IsVisible="False"
+                            Opacity="0"
+                            TranslationX="-44"
+                            Padding="10"
+                            BackgroundColor="#B0000000"
+                            StrokeThickness="0"
+                            VerticalOptions="Center">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="30" />
+                        </Border.StrokeShape>
+
+                        <HorizontalStackLayout Spacing="10">
+                            <Button Text="✔"
+                                    Clicked="OnConfirmRemoveClicked"
+                                    BackgroundColor="#C62828"
+                                    TextColor="White"
+                                    FontSize="22"
+                                    WidthRequest="56"
+                                    HeightRequest="56"
+                                    CornerRadius="28" />
+
+                            <Button Text="✖"
+                                    Clicked="OnCancelRemoveClicked"
+                                    BackgroundColor="#333333"
+                                    TextColor="White"
+                                    FontSize="22"
+                                    WidthRequest="56"
+                                    HeightRequest="56"
+                                    CornerRadius="28" />
+                        </HorizontalStackLayout>
+                    </Border>
+                </HorizontalStackLayout>
+            </VerticalStackLayout>
+
+            <HorizontalStackLayout Grid.Column="2" Spacing="10" VerticalOptions="Start">
                 <Button x:Name="SettingsButton"
                         Text="⚙"
                         Clicked="OnSettingsClicked"

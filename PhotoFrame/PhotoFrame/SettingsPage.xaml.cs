@@ -219,20 +219,25 @@ namespace PhotoFrame
         /// Раскрывает и сворачивает раздел настроек.
         /// </summary>
         /// <remarks>
-        /// Раздел передаётся через CommandParameter, поэтому обработчик один на все
-        /// заголовки и знать о них ничего не должен. Значок раскрытия — первый символ
-        /// подписи, так что менять его можно, не трогая сам заголовок.
+        /// Раздел передаётся параметром жеста, поэтому обработчик один на все заголовки
+        /// и знать о них ничего не должен. Значок раскрытия — первый символ подписи,
+        /// так что менять его можно, не трогая остальной текст.
+        ///
+        /// Заголовок собран из Border с Label, а не из Button: у кнопки MAUI не
+        /// настраивается выравнивание текста, и подпись раздела оставалась по центру.
         /// </remarks>
-        private static void OnSectionHeaderClicked(object? sender, EventArgs e)
+        private static void OnSectionHeaderTapped(object? sender, TappedEventArgs e)
         {
-            if (sender is not Button header || header.CommandParameter is not VisualElement section)
+            if (sender is not Border header
+                || header.Content is not Label title
+                || e.Parameter is not VisualElement section)
             {
                 return;
             }
 
             bool expanding = !section.IsVisible;
             section.IsVisible = expanding;
-            header.Text = (expanding ? '▾' : '▸') + header.Text[1..];
+            title.Text = (expanding ? '▾' : '▸') + title.Text[1..];
         }
 
         /// <summary>Настройки источника показываются только когда сам источник включён.</summary>

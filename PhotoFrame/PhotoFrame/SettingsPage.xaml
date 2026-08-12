@@ -9,8 +9,10 @@
     <!--
         Разделы свёрнуты и раскрываются по нажатию на заголовок: настроек стало столько,
         что список перестал помещаться на экран и нужное приходилось выискивать прокруткой.
-        Свой заголовок-кнопка, а не Expander: тот живёт в CommunityToolkit, а тянуть
-        зависимость в 32-битную сборку ради восьми заголовков не стоит.
+        Свой заголовок, а не Expander: тот живёт в CommunityToolkit, а тянуть
+        зависимость в 32-битную сборку ради восьми заголовков не стоит. И не Button:
+        у кнопки MAUI не настраивается выравнивание текста, поэтому подпись раздела
+        оставалась по центру.
     -->
     <Grid RowDefinitions="Auto,*,Auto">
 
@@ -36,17 +38,21 @@
             <VerticalStackLayout Padding="24,20" Spacing="10">
 
                 <!-- ================= Источник ================= -->
-                <Button Text="▸  ИСТОЧНИК СНИМКОВ"
-                        Clicked="OnSectionHeaderClicked"
-                        CommandParameter="{x:Reference SourceSection}"
-                        BackgroundColor="#1E1E1E"
-                        TextColor="#4FC3F7"
-                        FontSize="14"
-                        FontAttributes="Bold"
-                        CharacterSpacing="2"
-                        Padding="16,12"
-                        CornerRadius="8"
-                        HorizontalOptions="Fill" />
+                <Border BackgroundColor="#1E1E1E" StrokeThickness="0" Padding="16,12">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="8" />
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSectionHeaderTapped"
+                                              CommandParameter="{x:Reference SourceSection}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="▸  ИСТОЧНИК СНИМКОВ"
+                           TextColor="#4FC3F7"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           CharacterSpacing="2"
+                           HorizontalOptions="Start" />
+                </Border>
 
                 <VerticalStackLayout x:Name="SourceSection" IsVisible="False"
                                      Spacing="20" Margin="8,6,0,10">
@@ -127,17 +133,21 @@
                 </VerticalStackLayout>
 
                 <!-- ================= Слайд-шоу ================= -->
-                <Button Text="▸  СЛАЙД-ШОУ"
-                        Clicked="OnSectionHeaderClicked"
-                        CommandParameter="{x:Reference SlideshowSection}"
-                        BackgroundColor="#1E1E1E"
-                        TextColor="#4FC3F7"
-                        FontSize="14"
-                        FontAttributes="Bold"
-                        CharacterSpacing="2"
-                        Padding="16,12"
-                        CornerRadius="8"
-                        HorizontalOptions="Fill" />
+                <Border BackgroundColor="#1E1E1E" StrokeThickness="0" Padding="16,12">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="8" />
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSectionHeaderTapped"
+                                              CommandParameter="{x:Reference SlideshowSection}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="▸  СЛАЙД-ШОУ"
+                           TextColor="#4FC3F7"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           CharacterSpacing="2"
+                           HorizontalOptions="Start" />
+                </Border>
 
                 <VerticalStackLayout x:Name="SlideshowSection" IsVisible="False"
                                      Spacing="20" Margin="8,6,0,10">
@@ -171,17 +181,21 @@
                 </VerticalStackLayout>
 
                 <!-- ================= Обновление ================= -->
-                <Button Text="▸  ОБНОВЛЕНИЕ"
-                        Clicked="OnSectionHeaderClicked"
-                        CommandParameter="{x:Reference RefreshSection}"
-                        BackgroundColor="#1E1E1E"
-                        TextColor="#4FC3F7"
-                        FontSize="14"
-                        FontAttributes="Bold"
-                        CharacterSpacing="2"
-                        Padding="16,12"
-                        CornerRadius="8"
-                        HorizontalOptions="Fill" />
+                <Border BackgroundColor="#1E1E1E" StrokeThickness="0" Padding="16,12">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="8" />
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSectionHeaderTapped"
+                                              CommandParameter="{x:Reference RefreshSection}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="▸  ОБНОВЛЕНИЕ"
+                           TextColor="#4FC3F7"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           CharacterSpacing="2"
+                           HorizontalOptions="Start" />
+                </Border>
 
                 <VerticalStackLayout x:Name="RefreshSection" IsVisible="False"
                                      Spacing="20" Margin="8,6,0,10">
@@ -199,17 +213,21 @@
                 </VerticalStackLayout>
 
                 <!-- ================= Вид ================= -->
-                <Button Text="▸  ВИД"
-                        Clicked="OnSectionHeaderClicked"
-                        CommandParameter="{x:Reference AppearanceSection}"
-                        BackgroundColor="#1E1E1E"
-                        TextColor="#4FC3F7"
-                        FontSize="14"
-                        FontAttributes="Bold"
-                        CharacterSpacing="2"
-                        Padding="16,12"
-                        CornerRadius="8"
-                        HorizontalOptions="Fill" />
+                <Border BackgroundColor="#1E1E1E" StrokeThickness="0" Padding="16,12">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="8" />
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSectionHeaderTapped"
+                                              CommandParameter="{x:Reference AppearanceSection}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="▸  ВИД"
+                           TextColor="#4FC3F7"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           CharacterSpacing="2"
+                           HorizontalOptions="Start" />
+                </Border>
 
                 <VerticalStackLayout x:Name="AppearanceSection" IsVisible="False"
                                      Spacing="20" Margin="8,6,0,10">
@@ -251,17 +269,21 @@
                 </VerticalStackLayout>
 
                 <!-- ================= Датчики ================= -->
-                <Button Text="▸  ДАТЧИКИ"
-                        Clicked="OnSectionHeaderClicked"
-                        CommandParameter="{x:Reference SensorSection}"
-                        BackgroundColor="#1E1E1E"
-                        TextColor="#4FC3F7"
-                        FontSize="14"
-                        FontAttributes="Bold"
-                        CharacterSpacing="2"
-                        Padding="16,12"
-                        CornerRadius="8"
-                        HorizontalOptions="Fill" />
+                <Border BackgroundColor="#1E1E1E" StrokeThickness="0" Padding="16,12">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="8" />
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSectionHeaderTapped"
+                                              CommandParameter="{x:Reference SensorSection}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="▸  ДАТЧИКИ"
+                           TextColor="#4FC3F7"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           CharacterSpacing="2"
+                           HorizontalOptions="Start" />
+                </Border>
 
                 <VerticalStackLayout x:Name="SensorSection" IsVisible="False"
                                      Spacing="20" Margin="8,6,0,10">
@@ -297,17 +319,21 @@
                 </VerticalStackLayout>
 
                 <!-- ================= Ночной режим ================= -->
-                <Button Text="▸  НОЧНОЙ РЕЖИМ"
-                        Clicked="OnSectionHeaderClicked"
-                        CommandParameter="{x:Reference NightSection}"
-                        BackgroundColor="#1E1E1E"
-                        TextColor="#4FC3F7"
-                        FontSize="14"
-                        FontAttributes="Bold"
-                        CharacterSpacing="2"
-                        Padding="16,12"
-                        CornerRadius="8"
-                        HorizontalOptions="Fill" />
+                <Border BackgroundColor="#1E1E1E" StrokeThickness="0" Padding="16,12">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="8" />
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSectionHeaderTapped"
+                                              CommandParameter="{x:Reference NightSection}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="▸  НОЧНОЙ РЕЖИМ"
+                           TextColor="#4FC3F7"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           CharacterSpacing="2"
+                           HorizontalOptions="Start" />
+                </Border>
 
                 <VerticalStackLayout x:Name="NightSection" IsVisible="False"
                                      Spacing="20" Margin="8,6,0,10">
@@ -356,17 +382,21 @@
                 </VerticalStackLayout>
 
                 <!-- ================= Запуск ================= -->
-                <Button Text="▸  ЗАПУСК"
-                        Clicked="OnSectionHeaderClicked"
-                        CommandParameter="{x:Reference LaunchSection}"
-                        BackgroundColor="#1E1E1E"
-                        TextColor="#4FC3F7"
-                        FontSize="14"
-                        FontAttributes="Bold"
-                        CharacterSpacing="2"
-                        Padding="16,12"
-                        CornerRadius="8"
-                        HorizontalOptions="Fill" />
+                <Border BackgroundColor="#1E1E1E" StrokeThickness="0" Padding="16,12">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="8" />
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSectionHeaderTapped"
+                                              CommandParameter="{x:Reference LaunchSection}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="▸  ЗАПУСК"
+                           TextColor="#4FC3F7"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           CharacterSpacing="2"
+                           HorizontalOptions="Start" />
+                </Border>
 
                 <VerticalStackLayout x:Name="LaunchSection" IsVisible="False"
                                      Spacing="20" Margin="8,6,0,10">
@@ -396,17 +426,21 @@
                 </VerticalStackLayout>
 
                 <!-- ================= О программе ================= -->
-                <Button Text="▸  О ПРОГРАММЕ"
-                        Clicked="OnSectionHeaderClicked"
-                        CommandParameter="{x:Reference AboutSection}"
-                        BackgroundColor="#1E1E1E"
-                        TextColor="#4FC3F7"
-                        FontSize="14"
-                        FontAttributes="Bold"
-                        CharacterSpacing="2"
-                        Padding="16,12"
-                        CornerRadius="8"
-                        HorizontalOptions="Fill" />
+                <Border BackgroundColor="#1E1E1E" StrokeThickness="0" Padding="16,12">
+                    <Border.StrokeShape>
+                        <RoundRectangle CornerRadius="8" />
+                    </Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnSectionHeaderTapped"
+                                              CommandParameter="{x:Reference AboutSection}" />
+                    </Border.GestureRecognizers>
+                    <Label Text="▸  О ПРОГРАММЕ"
+                           TextColor="#4FC3F7"
+                           FontSize="14"
+                           FontAttributes="Bold"
+                           CharacterSpacing="2"
+                           HorizontalOptions="Start" />
+                </Border>
 
                 <VerticalStackLayout x:Name="AboutSection" IsVisible="False"
                                      Spacing="6" Margin="8,6,0,10">

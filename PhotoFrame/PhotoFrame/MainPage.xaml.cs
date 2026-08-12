@@ -132,6 +132,9 @@ namespace PhotoFrame
         /// <summary>У текущего кадра есть данные о съёмке.</summary>
         private bool _hasCaptureInfo;
 
+        /// <summary>Кадр, о котором спрашивает выдвинутое подтверждение.</summary>
+        private string? _pendingRemovalPath;
+
         public MainPage()
         {
             InitializeComponent();
@@ -403,6 +406,7 @@ namespace PhotoFrame
             ControlPanel.IsVisible = false;
             UpdateTapRevealedOverlays();
             _panelHideTimer.Stop();
+            ResetRemoveConfirm();
 
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
             ClockDateHost.IsVisible = FrameSettings.ShowDate;
@@ -750,6 +754,13 @@ namespace PhotoFrame
             {
                 ControlPanel.IsVisible = false;
                 UpdateTapRevealedOverlays();
+
+                // Панель ушла вместе с вопросом — считаем это отказом и возвращаем показ.
+                if (ResetRemoveConfirm())
+                {
+                    _slideshowTimer.Start();
+                }
+
                 return;
             }
 
@@ -826,27 +837,37 @@ namespace PhotoFrame
         /// </remarks>
         private async void OnRemoveClicked(object? sender, EventArgs e)
         {
-            if (_localPhotoPaths.Count == 0)
+            if (_localPhotoPaths.Count == 0 || _pendingRemovalPath is not null)
             {
                 return;
             }
 
-            string mediaPath = _localPhotoPaths[_currentPhotoIndex];
-
+            // Пока висит вопрос, кадр не должен смениться, иначе в корзину уехал бы
+            // не тот файл. Панель тоже не убираем сама собой.
             _slideshowTimer.Stop();
             _panelHideTimer.Stop();
 
-            bool confirmed = await DisplayAlertAsync(
-                "Убрать из показа",
-                $"Файл {Path.GetFileName(mediaPath)} переедет в папку «{MediaFileScanner.TrashDirectoryName}» " +
-                "и больше не появится в слайд-шоу.",
-                "Убрать",
-                "Отмена");
+            _pendingRemovalPath = _localPhotoPaths[_currentPhotoIndex];
 
-            if (!confirmed)
+            RemoveConfirmPanel.IsVisible = true;
+            await AnimateRemoveConfirmAsync(shown: true).ConfigureAwait(true);
+        }
+
+        private async void OnCancelRemoveClicked(object? sender, EventArgs e)
+        {
+            await HideRemoveConfirmAsync().ConfigureAwait(true);
+
+            _panelHideTimer.Start();
+            _slideshowTimer.Start();
+        }
+
+        private async void OnConfirmRemoveClicked(object? sender, EventArgs e)
+        {
+            string? mediaPath = _pendingRemovalPath;
+            await HideRemoveConfirmAsync().ConfigureAwait(true);
+
+            if (mediaPath is null)
             {
-                _panelHideTimer.Start();
-                _slideshowTimer.Start();
                 return;
             }
 
@@ -873,6 +894,51 @@ namespace PhotoFrame
             }
 
             RemoveCurrentPhotoFromShow();
+        }
+
+        /// <summary>
+        /// Выдвигает подтверждение вправо от кнопки и убирает его обратно.
+        /// </summary>
+        /// <remarks>
+        /// Смещение отрицательное в скрытом виде, поэтому панель выезжает из-под самой
+        /// кнопки, а не появляется рядом с ней.
+        /// </remarks>
+        private Task AnimateRemoveConfirmAsync(bool shown)
+        {
+            return Task.WhenAll(
+                RemoveConfirmPanel.TranslateToAsync(shown ? 0 : -44, 0, 180),
+                RemoveConfirmPanel.FadeToAsync(shown ? 1 : 0, 180));
+        }
+
+        private async Task HideRemoveConfirmAsync()
+        {
+            _pendingRemovalPath = null;
+
+            await AnimateRemoveConfirmAsync(shown: false).ConfigureAwait(true);
+            RemoveConfirmPanel.IsVisible = false;
+        }
+
+        /// <summary>
+        /// Убирает подтверждение без анимации. Возвращает true, если вопрос действительно
+        /// висел, — тогда вызывающий код возобновляет показ.
+        /// </summary>
+        /// <remarks>
+        /// Нужно, когда панель управления исчезает целиком: анимировать то, что уже
+        /// скрыто, незачем, а состояние сбросить обязательно.
+        /// </remarks>
+        private bool ResetRemoveConfirm()
+        {
+            if (_pendingRemovalPath is null)
+            {
+                return false;
+            }
+
+            _pendingRemovalPath = null;
+
+            RemoveConfirmPanel.IsVisible = false;
+            RemoveConfirmPanel.Opacity = 0;
+            RemoveConfirmPanel.TranslationX = -44;
+            return true;
         }
 
         /// <summary>
