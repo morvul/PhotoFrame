@@ -34,6 +34,7 @@ namespace PhotoFrame
 
             NightColorPicker.ItemsSource = NightClockPalette.BuildChoiceLabels();
             NightBrightnessPicker.ItemsSource = BuildBrightnessChoices();
+            LaunchDelayPicker.ItemsSource = BuildLaunchDelayChoices();
         }
 
         /// <summary>0 в списке означает «без предела».</summary>
@@ -55,6 +56,19 @@ namespace PhotoFrame
             for (int index = 0; index < labels.Length; index++)
             {
                 labels[index] = FrameSettings.PanelRevealChoices[index] + " сек";
+            }
+
+            return labels;
+        }
+
+        /// <summary>0 в списке означает «сразу».</summary>
+        private static string[] BuildLaunchDelayChoices()
+        {
+            var labels = new string[FrameSettings.LaunchOnBootDelayChoices.Length];
+            for (int index = 0; index < labels.Length; index++)
+            {
+                int delaySeconds = FrameSettings.LaunchOnBootDelayChoices[index];
+                labels[index] = delaySeconds == 0 ? "сразу" : delaySeconds + " сек";
             }
 
             return labels;
@@ -183,8 +197,23 @@ namespace PhotoFrame
                 PollIntervalPicker.SelectedIndex = 2;
             }
 
+            LaunchOnBootSwitch.IsToggled = FrameSettings.LaunchOnBoot;
+            LaunchDelayPanel.IsVisible = FrameSettings.LaunchOnBoot;
+
+            LaunchDelayPicker.SelectedIndex = Array.IndexOf(
+                FrameSettings.LaunchOnBootDelayChoices, FrameSettings.LaunchOnBootDelaySeconds);
+
+            if (LaunchDelayPicker.SelectedIndex < 0)
+            {
+                LaunchDelayPicker.SelectedIndex =
+                    Array.IndexOf(FrameSettings.LaunchOnBootDelayChoices, 30);
+            }
+
             ShowDiagnostics();
         }
+
+        private void OnLaunchOnBootToggled(object? sender, ToggledEventArgs e) =>
+            LaunchDelayPanel.IsVisible = LaunchOnBootSwitch.IsToggled;
 
         /// <summary>Настройки источника показываются только когда сам источник включён.</summary>
         private void UpdateSourcePanels()
@@ -372,6 +401,14 @@ namespace PhotoFrame
             {
                 FrameSettings.NightClockBrightnessPercent =
                     FrameSettings.NightClockBrightnessChoices[NightBrightnessPicker.SelectedIndex];
+            }
+
+            FrameSettings.LaunchOnBoot = LaunchOnBootSwitch.IsToggled;
+
+            if (LaunchDelayPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.LaunchOnBootDelaySeconds =
+                    FrameSettings.LaunchOnBootDelayChoices[LaunchDelayPicker.SelectedIndex];
             }
 
             if (SlideshowIntervalPicker.SelectedIndex >= 0)

@@ -266,6 +266,32 @@
                             VerticalOptions="Center" />
                 </Grid>
 
+                <!-- ================= Запуск ================= -->
+                <Label Text="ЗАПУСК" TextColor="#4FC3F7" FontSize="13" FontAttributes="Bold" CharacterSpacing="2" />
+
+                <Grid ColumnDefinitions="*,Auto">
+                    <VerticalStackLayout Grid.Column="0">
+                        <Label Text="Открывать слайд-шоу при включении рамки" TextColor="White" FontSize="16" />
+                        <Label Text="Иначе после включения рамка остаётся на лаунчере"
+                               TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+                    <Switch Grid.Column="1" x:Name="LaunchOnBootSwitch"
+                            Toggled="OnLaunchOnBootToggled"
+                            OnColor="#4FC3F7" VerticalOptions="Center" />
+                </Grid>
+
+                <Grid x:Name="LaunchDelayPanel" ColumnDefinitions="*,220" ColumnSpacing="12"
+                      Margin="16,0,0,0">
+                    <VerticalStackLayout Grid.Column="0">
+                        <Label Text="Задержка запуска" TextColor="White" FontSize="16" />
+                        <Label Text="Сразу после загрузки лаунчер перекрывает чужие окна"
+                               TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+                    <Picker Grid.Column="1" x:Name="LaunchDelayPicker"
+                            TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
+                            VerticalOptions="Center" />
+                </Grid>
+
                 <!-- ================= О программе ================= -->
                 <Label Text="О ПРОГРАММЕ" TextColor="#4FC3F7" FontSize="13" FontAttributes="Bold" CharacterSpacing="2" />
 

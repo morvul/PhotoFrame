@@ -39,6 +39,8 @@ namespace PhotoFrame
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
+        private const string LaunchOnBootKey = "launch_on_boot";
+        private const string LaunchOnBootDelayKey = "launch_on_boot_delay_seconds";
         private const string TrashedAlbumFilesKey = "trashed_album_files";
 
         /// <summary>Варианты длительности показа одного кадра, секунды.</summary>
@@ -52,6 +54,9 @@ namespace PhotoFrame
 
         /// <summary>Варианты яркости ночных часов, проценты.</summary>
         public static readonly int[] NightClockBrightnessChoices = { 10, 20, 30, 45, 60, 80, 100 };
+
+        /// <summary>Варианты задержки запуска после включения рамки, секунды.</summary>
+        public static readonly int[] LaunchOnBootDelayChoices = { 0, 10, 20, 30, 60, 120 };
 
         /// <summary>
         /// Варианты предела на число скачиваемых из альбома кадров. 0 — без предела.
@@ -342,6 +347,33 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(ShowDateKey, true);
             set => Preferences.Default.Set(ShowDateKey, value);
+        }
+
+        /// <summary>
+        /// Открывать слайд-шоу после включения рамки.
+        /// </summary>
+        /// <remarks>
+        /// По умолчанию включено: рамка включается кнопкой питания или после отключения
+        /// света, и запускать приложение руками с пульта лаунчера — не то, чего ждут
+        /// от фоторамки.
+        /// </remarks>
+        public static bool LaunchOnBoot
+        {
+            get => Preferences.Default.Get(LaunchOnBootKey, true);
+            set => Preferences.Default.Set(LaunchOnBootKey, value);
+        }
+
+        /// <summary>
+        /// Через сколько секунд после загрузки открывать слайд-шоу.
+        /// </summary>
+        /// <remarks>
+        /// Сразу после загрузки система ещё поднимает свой лаунчер и перекрывает им
+        /// чужие активности, поэтому запуск лучше отложить.
+        /// </remarks>
+        public static int LaunchOnBootDelaySeconds
+        {
+            get => Preferences.Default.Get(LaunchOnBootDelayKey, 30);
+            set => Preferences.Default.Set(LaunchOnBootDelayKey, value);
         }
 
         /// <summary>Когда последний раз успешно синхронизировались. UTC.</summary>
