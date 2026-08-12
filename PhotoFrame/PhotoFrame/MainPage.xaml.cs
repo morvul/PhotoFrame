@@ -102,8 +102,12 @@ namespace PhotoFrame
         /// <summary>Текущая фаза шахматной маски ночных часов.</summary>
         private bool _nightMaskPhaseShifted;
 
-        /// <summary>Показанный сейчас кадр ночных часов. Освобождается при подмене.</summary>
-        private Android.Graphics.Bitmap? _nightClockFrame;
+        /// <summary>Кадры, лежащие в двух слоях ночных часов.</summary>
+        private Android.Graphics.Bitmap? _frontNightFrame;
+        private Android.Graphics.Bitmap? _backNightFrame;
+
+        /// <summary>Показанный кадр лежит в верхнем слое.</summary>
+        private bool _nightFrameInFrontLayer;
 
         /// <summary>Растёт на каждом кадре: отбрасывает анализ устаревшего снимка.</summary>
         private int _photoGeneration;
@@ -542,39 +546,80 @@ namespace PhotoFrame
         /// <remarks>
         /// Кадр отдаётся платформенному ImageView напрямую: свойство Source в MAUI
         /// загружается асинхронно и на это время гасит картинку, из-за чего на смене
-        /// минуты экран мигал чёрным. SetImageBitmap подменяет содержимое в том же
-        /// кадре отрисовки. Предыдущий кадр освобождается только после подмены — пока
-        /// он на экране, освобождать его нельзя.
+        /// минуты экран заметно мигал чёрным.
+        ///
+        /// Слои чередуются. Новый кадр всегда попадает в свободный слой, и лишь после
+        /// этого гасится тот, что показывал прошлую минуту: пока новый кадр не на месте,
+        /// на экране остаётся прежний. С одним слоем оставался один чёрный кадр — между
+        /// очисткой ImageView и отрисовкой нового содержимого.
         /// </remarks>
         private void ShowNightClockFrame(Android.Graphics.Bitmap renderedFrame)
         {
-            if (NightClockImage.Handler?.PlatformView is not Android.Widget.ImageView imageView)
+            bool intoFrontLayer = !_nightFrameInFrontLayer;
+
+            Image targetLayer = intoFrontLayer ? NightClockFrontImage : NightClockBackImage;
+            Image previousLayer = intoFrontLayer ? NightClockBackImage : NightClockFrontImage;
+
+            if (!TrySetLayerFrame(targetLayer, renderedFrame))
             {
                 // Обработчик ещё не создан — кадр покажется на следующей минуте,
-                // а до тех сейчас видны резервные метки.
+                // а пока видны резервные метки.
                 renderedFrame.Dispose();
                 _lastRenderedNightMinute = null;
                 return;
             }
 
-            Android.Graphics.Bitmap? previousFrame = _nightClockFrame;
+            if (intoFrontLayer)
+            {
+                _frontNightFrame?.Dispose();
+                _frontNightFrame = renderedFrame;
+            }
+            else
+            {
+                _backNightFrame?.Dispose();
+                _backNightFrame = renderedFrame;
+            }
 
-            imageView.SetImageBitmap(renderedFrame);
-            _nightClockFrame = renderedFrame;
+            ClearLayer(previousLayer, clearingFrontLayer: !intoFrontLayer);
+            _nightFrameInFrontLayer = intoFrontLayer;
+        }
 
-            previousFrame?.Dispose();
+        private static bool TrySetLayerFrame(Image layer, Android.Graphics.Bitmap frame)
+        {
+            if (layer.Handler?.PlatformView is not Android.Widget.ImageView imageView)
+            {
+                return false;
+            }
+
+            imageView.SetImageBitmap(frame);
+            return true;
+        }
+
+        private void ClearLayer(Image layer, bool clearingFrontLayer)
+        {
+            if (layer.Handler?.PlatformView is Android.Widget.ImageView imageView)
+            {
+                imageView.SetImageBitmap(null);
+            }
+
+            if (clearingFrontLayer)
+            {
+                _frontNightFrame?.Dispose();
+                _frontNightFrame = null;
+            }
+            else
+            {
+                _backNightFrame?.Dispose();
+                _backNightFrame = null;
+            }
         }
 
         /// <summary>Убирает кадр ночных часов и освобождает память под ним.</summary>
         private void ReleaseNightClockFrame()
         {
-            if (NightClockImage.Handler?.PlatformView is Android.Widget.ImageView imageView)
-            {
-                imageView.SetImageBitmap(null);
-            }
-
-            _nightClockFrame?.Dispose();
-            _nightClockFrame = null;
+            ClearLayer(NightClockFrontImage, clearingFrontLayer: true);
+            ClearLayer(NightClockBackImage, clearingFrontLayer: false);
+            _nightFrameInFrontLayer = false;
         }
 
         /// <summary>Переставляет часы в следующий угол — по одному шагу на кадр.</summary>

@@ -99,8 +99,21 @@
                        Margin="0,-24,0,0" />
             </VerticalStackLayout>
 
-            <!-- Часы на весь экран: горит только каждый второй пиксель. -->
-            <Image x:Name="NightClockImage"
+            <!--
+                Часы на весь экран: горит только каждый второй пиксель.
+
+                Слоёв два, и они меняются ролями на каждой минуте: новый кадр
+                выкладывается в свободный слой, и лишь потом гасится прежний. Одного
+                слоя не хватало — между заменой картинки и её отрисовкой оставался
+                кадр с пустым ImageView, то есть чёрный экран.
+            -->
+            <Image x:Name="NightClockBackImage"
+                   Aspect="Fill"
+                   HorizontalOptions="Fill"
+                   VerticalOptions="Fill"
+                   InputTransparent="True" />
+
+            <Image x:Name="NightClockFrontImage"
                    Aspect="Fill"
                    HorizontalOptions="Fill"
                    VerticalOptions="Fill"
