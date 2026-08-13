@@ -101,9 +101,18 @@ namespace PhotoFrame
             float dateTextSize = timeTextSize * DateSizeFraction;
             float dateBlockHeight = hasDate ? dateTextSize * 1.6f : 0f;
 
-            bool hasSensors = !string.IsNullOrEmpty(sensorText);
             float sensorTextSize = timeTextSize * SensorSizeFraction;
-            float sensorBlockHeight = hasSensors ? sensorTextSize * 1.7f : 0f;
+
+            // Значков может быть сколько угодно, поэтому строка переносится: одной
+            // строкой показания попросту уезжали за края экрана.
+            List<string> sensorLines = WrapSensorBadges(
+                sensorText, sensorTextSize, widthPixels * TimeWidthFraction);
+
+            bool hasSensors = sensorLines.Count > 0;
+            float sensorLineHeight = sensorTextSize * 1.5f;
+            float sensorBlockHeight = hasSensors
+                ? sensorTextSize * 0.2f + sensorLines.Count * sensorLineHeight
+                : 0f;
 
             // Весь блок центрируется целиком: иначе время съезжало бы вверх на каждую
             // добавленную под ним строку.
@@ -125,15 +134,67 @@ namespace PhotoFrame
             if (hasSensors)
             {
                 textPaint.TextSize = sensorTextSize;
-                canvas.DrawText(
-                    sensorText!,
-                    centreX,
-                    timeBaselineY + dateBlockHeight + sensorBlockHeight,
-                    textPaint);
+                float sensorBaselineY =
+                    timeBaselineY + dateBlockHeight + sensorTextSize * 0.2f + sensorLineHeight;
+
+                foreach (string sensorLine in sensorLines)
+                {
+                    canvas.DrawText(sensorLine, centreX, sensorBaselineY, textPaint);
+                    sensorBaselineY += sensorLineHeight;
+                }
             }
 
             return frame;
         }
+
+        /// <summary>
+        /// Раскладывает значки датчиков по строкам, чтобы каждая уместилась в ширину.
+        /// </summary>
+        /// <remarks>
+        /// Перенос идёт по значкам, а не по словам: «🌱 24.5°C» — единое целое, и рвать
+        /// его между значком и значением нельзя. Значок шире всей строки (такого быть
+        /// не должно, но всё же) остаётся один в строке и просто выйдет за края.
+        /// </remarks>
+        private static List<string> WrapSensorBadges(string? sensorText, float textSize, float maxWidth)
+        {
+            var lines = new List<string>();
+            if (string.IsNullOrWhiteSpace(sensorText))
+            {
+                return lines;
+            }
+
+            using var measurePaint = new AndroidPaint(PaintFlags.AntiAlias) { TextSize = textSize };
+
+            string[] badges = sensorText.Split(
+                BadgeSeparator, System.StringSplitOptions.RemoveEmptyEntries);
+
+            string currentLine = string.Empty;
+            foreach (string badge in badges)
+            {
+                string candidate = currentLine.Length == 0
+                    ? badge
+                    : currentLine + BadgeSeparator + badge;
+
+                if (currentLine.Length > 0 && measurePaint.MeasureText(candidate) > maxWidth)
+                {
+                    lines.Add(currentLine);
+                    currentLine = badge;
+                    continue;
+                }
+
+                currentLine = candidate;
+            }
+
+            if (currentLine.Length > 0)
+            {
+                lines.Add(currentLine);
+            }
+
+            return lines;
+        }
+
+        /// <summary>Чем разделены значки датчиков в строке, собранной страницей.</summary>
+        private const string BadgeSeparator = "   ";
 
         /// <summary>Подбирает размер шрифта так, чтобы строка заняла нужную ширину.</summary>
         private static float FitTextSize(AndroidPaint paint, string text, float targetWidth)

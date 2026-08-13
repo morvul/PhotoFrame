@@ -29,6 +29,17 @@ namespace PhotoFrame
         private const double OutlineOpacity = 0.55;
 
         /// <summary>
+        /// Неразрывный пробел между значком датчика и его значением.
+        /// </summary>
+        /// <remarks>
+        /// Перенос по словам рвёт строку по любому пробелу, и значение уходило на другую
+        /// строку в отрыве от своего значка. Значки между собой разделены обычными
+        /// пробелами, поэтому переносится строка именно по ним. Константа, а не сам
+        /// символ в коде: невидимый пробел в исходнике не отличить от обычного.
+        /// </remarks>
+        private const char NonBreakingSpace = '\u00A0';
+
+        /// <summary>
         /// Предельная ширина строки датчиков в единицах устройства.
         /// </summary>
         /// <remarks>
@@ -363,11 +374,13 @@ namespace PhotoFrame
 
                 // Значок перед значением: все выбранные датчики могут быть термометрами,
                 // и без него непонятно, где какая температура.
+                // Внутри значка стоит неразрывный пробел: перенос по словам иначе мог
+                // оторвать значение от своего значка и увести его на другую строку.
                 var parts = new List<string>(values.Count);
                 foreach ((string entityId, string text) in values)
                 {
                     string icon = FrameSettings.GetSensorIcon(entityId);
-                    parts.Add(string.IsNullOrEmpty(icon) ? text : icon + " " + text);
+                    parts.Add(string.IsNullOrEmpty(icon) ? text : icon + NonBreakingSpace + text);
                 }
 
                 await MainThread.InvokeOnMainThreadAsync(() =>
