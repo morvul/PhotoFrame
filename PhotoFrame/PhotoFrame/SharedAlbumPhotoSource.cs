@@ -108,7 +108,9 @@ namespace PhotoFrame
             string albumSignature = ComputeAlbumSignature(BuildPosterUrlList(albumItems));
 
             // Самый частый случай: альбом не менялся, диск можно вообще не трогать.
-            if (!forceRefresh && IsAlreadyDownloaded(albumSignature))
+            // Но кэш, набранный прежними версиями, о видео ничего не знает: пока список
+            // видео не составлен, полный проход нужен, даже если отпечаток совпал.
+            if (!forceRefresh && AlbumVideoCache.HasIndex && IsAlreadyDownloaded(albumSignature))
             {
                 int cachedCount = GetCachedPhotoPaths().Count;
                 return new AlbumSyncResult(

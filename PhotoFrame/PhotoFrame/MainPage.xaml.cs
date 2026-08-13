@@ -535,8 +535,9 @@ namespace PhotoFrame
                 _slideshowTimer.Stop();
                 ClockOverlay.IsVisible = false;
 
-                // Ночью показания датчиков и подпись кадра не выводим.
+                // Ночью показания датчиков, подпись кадра и отметку видео не выводим.
                 SensorHost.IsVisible = false;
+                AlbumVideoBadge.IsVisible = false;
 
                 // И тем более не проигрываем видео.
                 StopVideoPlayback();
@@ -1344,9 +1345,15 @@ namespace PhotoFrame
 
                 // За кадром альбома может стоять видео: заставка уже на экране, а сам
                 // клип забирается только теперь — см. AlbumVideoCache.
-                if (AlbumVideoCache.IsVideoPoster(mediaPath))
+                int albumVideoDuration = AlbumVideoCache.FindVideoDuration(mediaPath);
+                if (albumVideoDuration > 0)
                 {
+                    ShowAlbumVideoBadge(albumVideoDuration, isReady: false);
                     _ = PlayAlbumVideoAsync(mediaPath, photoGeneration);
+                }
+                else
+                {
+                    AlbumVideoBadge.IsVisible = false;
                 }
 
                 return;
@@ -1426,18 +1433,42 @@ namespace PhotoFrame
             string? videoPath = await AlbumVideoCache.TryGetVideoAsync(posterPath)
                 .ConfigureAwait(true);
 
-            if (videoPath is null
-                || photoGeneration != _photoGeneration
-                || _isNightModeActive == true)
+            if (photoGeneration != _photoGeneration)
             {
                 return;
             }
+
+            if (videoPath is null)
+            {
+                // Заставка остаётся на экране, но молчать не стоит: иначе кадр выглядит
+                // обычным снимком, который почему-то помечен как видео.
+                AlbumVideoBadge.IsVisible = false;
+                ShowToast("Видео из альбома не загрузилось");
+                return;
+            }
+
+            if (_isNightModeActive == true)
+            {
+                return;
+            }
+
+            AlbumVideoBadge.IsVisible = false;
 
             _isCurrentSlideVideo = true;
             _currentVideoPath = videoPath;
             UpdateTapRevealedOverlays();
 
             StartVideoPlayback();
+        }
+
+        /// <summary>Отметка «за этим кадром видео» с его длительностью.</summary>
+        private void ShowAlbumVideoBadge(int durationMilliseconds, bool isReady)
+        {
+            AlbumVideoBadgeLabel.Text = isReady
+                ? $"▶  {ClipTimeFormatter.Describe(durationMilliseconds)}"
+                : $"▶  {ClipTimeFormatter.Describe(durationMilliseconds)}  ·  загрузка…";
+
+            AlbumVideoBadge.IsVisible = _isNightModeActive != true;
         }
 
         private async Task ShowVideoPosterAsync(string videoPath, int photoGeneration)

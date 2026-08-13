@@ -121,6 +121,27 @@
         </Grid>
 
         <!--
+            Отметка на кадре альбома, за которым стоит видео: сам клип забирается только
+            когда слайд показан, и без отметки было бы непонятно, чего мы ждём.
+        -->
+        <Border x:Name="AlbumVideoBadge"
+                IsVisible="False"
+                InputTransparent="True"
+                HorizontalOptions="Center"
+                VerticalOptions="Center"
+                Padding="20,12"
+                BackgroundColor="#90000000"
+                StrokeThickness="0">
+            <Border.StrokeShape>
+                <RoundRectangle CornerRadius="24" />
+            </Border.StrokeShape>
+
+            <Label x:Name="AlbumVideoBadgeLabel"
+                   TextColor="White"
+                   FontSize="20" />
+        </Border>
+
+        <!--
             Управление видео. Кнопка воспроизведения по центру видна всегда, когда
             текущий кадр — видео: иначе о возможности воспроизвести никто не догадается.
             Повтор и звук — рядом, чтобы не прятать их в настройках.

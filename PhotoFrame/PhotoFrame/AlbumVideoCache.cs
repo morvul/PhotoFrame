@@ -41,6 +41,16 @@ namespace PhotoFrame
         private static string IndexPath =>
             IoPath.Combine(SharedAlbumPhotoSource.PhotoLibraryDirectory, IndexFileName);
 
+        /// <summary>
+        /// True, если список видео уже составлен.
+        /// </summary>
+        /// <remarks>
+        /// Проверяется перед тем, как пропустить синхронизацию по совпавшему отпечатку
+        /// альбома: кэш, набранный прежними версиями, знает только о снимках, и без
+        /// полного прохода видео так и остались бы заставками.
+        /// </remarks>
+        public static bool HasIndex => File.Exists(IndexPath);
+
         /// <summary>Запоминает адрес альбома после переходов — из него собирается адрес кадра.</summary>
         public static void RememberAlbumUrl(string resolvedAlbumUrl) =>
             Preferences.Default.Set(AlbumUrlKey, resolvedAlbumUrl);
@@ -63,6 +73,8 @@ namespace PhotoFrame
                 }
             }
 
+            FrameLog.Info($"Видео в альбоме: {lines.Count}");
+
             string indexPath = IndexPath;
             string temporaryPath = indexPath + ".tmp";
 
@@ -82,6 +94,27 @@ namespace PhotoFrame
 
         /// <summary>True, если за этой заставкой стоит видео.</summary>
         public static bool IsVideoPoster(string posterPath) => FindItemId(posterPath) is not null;
+
+        /// <summary>
+        /// Длительность видео за заставкой в миллисекундах; 0 — это не видео.
+        /// </summary>
+        public static int FindVideoDuration(string posterPath)
+        {
+            string posterFileName = IoPath.GetFileName(posterPath);
+
+            foreach (string line in ReadIndex())
+            {
+                string[] parts = line.Split('\t');
+                if (parts.Length >= 3
+                    && parts[0].Equals(posterFileName, StringComparison.OrdinalIgnoreCase)
+                    && int.TryParse(parts[2], out int durationMilliseconds))
+                {
+                    return durationMilliseconds;
+                }
+            }
+
+            return 0;
+        }
 
         /// <summary>Путь к уже скачанному клипу либо null.</summary>
         public static string? FindReadyVideo(string posterPath)
@@ -145,8 +178,7 @@ namespace PhotoFrame
                 string? videoUrl = AlbumVideoUrlExtractor.Extract(itemPageHtml);
                 if (videoUrl is null)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        "На странице кадра нет ссылки на видео.");
+                    FrameLog.Warn("На странице кадра нет ссылки на видео.");
                     return null;
                 }
 
@@ -156,12 +188,13 @@ namespace PhotoFrame
 
                 if (!response.IsSuccessStatusCode)
                 {
+                    FrameLog.Warn($"Видео не отдано: {(int)response.StatusCode}.");
                     return null;
                 }
 
                 if (response.Content.Headers.ContentLength > MaxVideoBytes)
                 {
-                    System.Diagnostics.Debug.WriteLine(
+                    FrameLog.Warn(
                         $"Видео пропущено: {response.Content.Headers.ContentLength} байт.");
                     return null;
                 }
@@ -175,13 +208,14 @@ namespace PhotoFrame
                 }
 
                 File.Move(temporaryPath, videoPath, overwrite: true);
+                FrameLog.Info($"Видео скачано: {new FileInfo(videoPath).Length} байт.");
                 return videoPath;
             }
             catch (Exception downloadFailure) when (
                 downloadFailure is HttpRequestException or IOException
                     or UnauthorizedAccessException or TaskCanceledException)
             {
-                System.Diagnostics.Debug.WriteLine($"Видео не скачано: {downloadFailure.Message}");
+                FrameLog.Warn($"Видео не скачано: {downloadFailure.Message}");
                 TryDelete(temporaryPath);
                 return null;
             }
