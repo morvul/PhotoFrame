@@ -136,9 +136,20 @@
                 <RoundRectangle CornerRadius="24" />
             </Border.StrokeShape>
 
-            <Label x:Name="AlbumVideoBadgeLabel"
-                   TextColor="White"
-                   FontSize="20" />
+            <VerticalStackLayout Spacing="8">
+                <Label x:Name="AlbumVideoBadgeLabel"
+                       TextColor="White"
+                       FontSize="20"
+                       HorizontalTextAlignment="Center" />
+
+                <!-- Ход загрузки: клип бывает и на сорок мегабайт, и ждать молча долго. -->
+                <ProgressBar x:Name="AlbumVideoProgressBar"
+                             Progress="0"
+                             ProgressColor="#4FC3F7"
+                             BackgroundColor="#40FFFFFF"
+                             HeightRequest="6"
+                             WidthRequest="320" />
+            </VerticalStackLayout>
         </Border>
 
         <!--
@@ -214,6 +225,35 @@
                         BackgroundColor="#80000000"
                         TextColor="White"
                         FontSize="24"
+                        WidthRequest="68"
+                        HeightRequest="68"
+                        CornerRadius="34" />
+
+                <!-- Громкость устройства: своя доля проигрывателя упирается в системную,
+                     поэтому кнопки двигают именно её. -->
+                <Button x:Name="VolumeDownButton"
+                        Text="−"
+                        Clicked="OnVolumeDownClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontSize="28"
+                        WidthRequest="68"
+                        HeightRequest="68"
+                        CornerRadius="34" />
+
+                <Label x:Name="VolumeLabel"
+                       TextColor="White"
+                       FontSize="18"
+                       WidthRequest="72"
+                       HorizontalTextAlignment="Center"
+                       VerticalOptions="Center" />
+
+                <Button x:Name="VolumeUpButton"
+                        Text="+"
+                        Clicked="OnVolumeUpClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontSize="28"
                         WidthRequest="68"
                         HeightRequest="68"
                         CornerRadius="34" />

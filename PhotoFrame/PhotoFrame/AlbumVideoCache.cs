@@ -268,7 +268,9 @@ namespace PhotoFrame
         /// Возвращает путь к клипу, при необходимости скачав его. Null — не удалось.
         /// </summary>
         public static async Task<string?> TryGetVideoAsync(
-            string posterPath, CancellationToken cancellationToken = default)
+            string posterPath,
+            IProgress<double>? downloadProgress = null,
+            CancellationToken cancellationToken = default)
         {
             string? readyPath = FindReadyVideo(posterPath);
             if (readyPath is not null)
@@ -289,7 +291,8 @@ namespace PhotoFrame
             {
                 // Пока ждали очереди, клип мог уже скачаться.
                 return FindReadyVideo(posterPath)
-                       ?? await DownloadAsync(posterPath, itemPageUrl, cancellationToken)
+                       ?? await DownloadAsync(
+                               posterPath, itemPageUrl, downloadProgress, cancellationToken)
                            .ConfigureAwait(false);
             }
             finally
@@ -299,7 +302,10 @@ namespace PhotoFrame
         }
 
         private static async Task<string?> DownloadAsync(
-            string posterPath, string itemPageUrl, CancellationToken cancellationToken)
+            string posterPath,
+            string itemPageUrl,
+            IProgress<double>? downloadProgress,
+            CancellationToken cancellationToken)
         {
             string videoPath = BuildVideoPath(posterPath);
             string temporaryPath = videoPath + ".tmp";
@@ -342,11 +348,31 @@ namespace PhotoFrame
                 }
 
                 // Через временный файл: прерванная загрузка не оставит обрезанный клип
-                // под именем, которое кэш считает готовым.
+                // под именем, которое кэш считает готовым. Копируем сами, а не через
+                // CopyToAsync: только так виден ход загрузки.
+                long expectedBytes = response.Content.Headers.ContentLength ?? 0;
+
+                await using (Stream source = await response.Content
+                    .ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
                 await using (FileStream temporaryFile = File.Create(temporaryPath))
                 {
-                    await response.Content.CopyToAsync(temporaryFile, cancellationToken)
-                        .ConfigureAwait(false);
+                    var buffer = new byte[81920];
+                    long copiedBytes = 0;
+                    int readBytes;
+
+                    while ((readBytes = await source
+                        .ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+                    {
+                        await temporaryFile.WriteAsync(
+                            buffer.AsMemory(0, readBytes), cancellationToken).ConfigureAwait(false);
+
+                        copiedBytes += readBytes;
+
+                        if (expectedBytes > 0)
+                        {
+                            downloadProgress?.Report((double)copiedBytes / expectedBytes);
+                        }
+                    }
                 }
 
                 File.Move(temporaryPath, videoPath, overwrite: true);

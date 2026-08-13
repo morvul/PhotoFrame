@@ -526,6 +526,10 @@ namespace PhotoFrame
                 return;
             }
 
+            // Состояние могло быть неизвестно: ApplySettings сбрасывает его при каждом
+            // возврате на страницу, и это не то же самое, что наступление утра.
+            bool wasNight = _isNightModeActive == true;
+
             _isNightModeActive = shouldBeNight;
             NightOverlay.IsVisible = shouldBeNight;
             ApplyScreenBrightness(shouldBeNight);
@@ -558,8 +562,14 @@ namespace PhotoFrame
                 return;
             }
 
-            // Утром показываем следующий кадр сразу, не дожидаясь интервала.
-            ShowNextPhoto();
+            // Утром показываем следующий кадр сразу, не дожидаясь интервала. А вот при
+            // возврате со страницы настроек или сведений о файле кадр менять нельзя:
+            // именно из-за этого слайд «сам» перещёлкивался при закрытии экрана.
+            if (wasNight)
+            {
+                ShowNextPhoto();
+            }
+
             _slideshowTimer.Start();
         }
 
@@ -1430,8 +1440,17 @@ namespace PhotoFrame
         /// </remarks>
         private async Task PlayAlbumVideoAsync(string posterPath, int photoGeneration)
         {
-            string? videoPath = await AlbumVideoCache.TryGetVideoAsync(posterPath)
-                .ConfigureAwait(true);
+            // Progress создан в UI-потоке, поэтому его обратные вызовы приходят туда же.
+            var downloadProgress = new Progress<double>(fraction =>
+            {
+                if (photoGeneration == _photoGeneration)
+                {
+                    AlbumVideoProgressBar.Progress = Math.Clamp(fraction, 0, 1);
+                }
+            });
+
+            string? videoPath = await AlbumVideoCache
+                .TryGetVideoAsync(posterPath, downloadProgress).ConfigureAwait(true);
 
             if (photoGeneration != _photoGeneration)
             {
@@ -1506,6 +1525,8 @@ namespace PhotoFrame
                 ? $"▶  {ClipTimeFormatter.Describe(durationMilliseconds)}"
                 : $"▶  {ClipTimeFormatter.Describe(durationMilliseconds)}  ·  загрузка…";
 
+            AlbumVideoProgressBar.Progress = 0;
+            AlbumVideoProgressBar.IsVisible = !isReady;
             AlbumVideoBadge.IsVisible = _isNightModeActive != true;
         }
 
@@ -1549,6 +1570,11 @@ namespace PhotoFrame
             PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
             RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;
             MuteButton.Text = FrameSettings.VideoMuted ? "🔇" : "🔊";
+
+            int volumePercent = SystemVolume.Percent;
+            VolumeLabel.Text = FrameSettings.VideoMuted
+                ? "тихо"
+                : volumePercent < 0 ? "—" : $"{volumePercent}%";
         }
 
         private void OnPlayPauseClicked(object? sender, EventArgs e)
@@ -1638,6 +1664,37 @@ namespace PhotoFrame
         {
             FrameSettings.VideoMuted = !FrameSettings.VideoMuted;
             VideoPlayer.IsMuted = FrameSettings.VideoMuted;
+            UpdateTapRevealedOverlays();
+        }
+
+        private void OnVolumeUpClicked(object? sender, EventArgs e) => ChangeVolume(louder: true);
+
+        private void OnVolumeDownClicked(object? sender, EventArgs e) => ChangeVolume(louder: false);
+
+        /// <summary>
+        /// Двигает громкость устройства на один шаг.
+        /// </summary>
+        /// <remarks>
+        /// Заодно снимает беззвучный режим: иначе кнопки громкости молча ничего не меняли
+        /// бы, и это выглядело бы поломкой.
+        /// </remarks>
+        private void ChangeVolume(bool louder)
+        {
+            if (louder)
+            {
+                SystemVolume.Raise();
+            }
+            else
+            {
+                SystemVolume.Lower();
+            }
+
+            if (FrameSettings.VideoMuted)
+            {
+                FrameSettings.VideoMuted = false;
+                VideoPlayer.IsMuted = false;
+            }
+
             UpdateTapRevealedOverlays();
         }
 
