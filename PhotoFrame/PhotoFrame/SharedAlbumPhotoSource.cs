@@ -428,13 +428,10 @@ namespace PhotoFrame
                     continue;
                 }
 
-                // Догруженный клип лежит под именем своей заставки: он остаётся, пока
-                // заставка в альбоме, иначе каждая синхронизация стирала бы скачанное.
-                string keepName = MediaFileTypes.IsVideo(existingPath)
-                    ? Path.ChangeExtension(Path.GetFileName(existingPath), ".jpg")
-                    : Path.GetFileName(existingPath);
-
-                if (!keepSet.Contains(keepName) && TryDeleteFile(existingPath))
+                // Клипы здесь больше не хранятся — они переехали во внешний каталог,
+                // откуда их может открыть проигрыватель. Оставшиеся от прежних версий
+                // файлы удаляются: их всё равно не воспроизвести.
+                if (!keepSet.Contains(Path.GetFileName(existingPath)) && TryDeleteFile(existingPath))
                 {
                     removedCount++;
                 }

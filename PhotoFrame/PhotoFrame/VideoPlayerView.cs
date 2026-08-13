@@ -47,6 +47,15 @@ namespace PhotoFrame
         /// <summary>Видео доиграло до конца и не было зацикленным.</summary>
         public event EventHandler? PlaybackFinished;
 
+        /// <summary>
+        /// Файл не воспроизводится: проигрыватель не смог его подготовить.
+        /// </summary>
+        /// <remarks>
+        /// Отдельно от <see cref="PlaybackFinished"/> нарочно: доигравший клип и клип,
+        /// который вообще не открылся, требуют разного — второй незачем пробовать снова.
+        /// </remarks>
+        public event EventHandler? PlaybackFailed;
+
         /// <summary>Начать или продолжить воспроизведение.</summary>
         public void Play() => Handler?.Invoke(nameof(Play));
 
@@ -69,5 +78,9 @@ namespace PhotoFrame
         /// <summary>Вызывается платформенным обработчиком.</summary>
         internal void RaisePlaybackFinished() =>
             PlaybackFinished?.Invoke(this, EventArgs.Empty);
+
+        /// <summary>Вызывается, когда файл не удалось воспроизвести.</summary>
+        internal void RaisePlaybackFailed() =>
+            PlaybackFailed?.Invoke(this, EventArgs.Empty);
     }
 }

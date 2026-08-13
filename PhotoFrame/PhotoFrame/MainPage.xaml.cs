@@ -152,6 +152,9 @@ namespace PhotoFrame
         /// <summary>Кадр, о котором спрашивает выдвинутое подтверждение.</summary>
         private string? _pendingRemovalPath;
 
+        /// <summary>Заставка кадра альбома, чей клип сейчас играет.</summary>
+        private string? _currentAlbumVideoPoster;
+
         /// <summary>
         /// Файл, который проигрывается на текущем слайде.
         /// </summary>
@@ -228,6 +231,7 @@ namespace PhotoFrame
             _toastHideTimer.Elapsed += OnToastHideTimerElapsed;
 
             VideoPlayer.PlaybackFinished += OnVideoPlaybackFinished;
+            VideoPlayer.PlaybackFailed += OnVideoPlaybackFailed;
         }
 
         /// <summary>
@@ -1095,13 +1099,12 @@ namespace PhotoFrame
                     .RefreshAsync(forceDownload, downloadProgress)
                     .ConfigureAwait(true);
 
-                DateTime checkedAtUtc = DateTime.UtcNow;
-                FrameSettings.LastSyncUtc = checkedAtUtc;
+                FrameSettings.LastSyncUtc = DateTime.UtcNow;
 
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
                     LoadPhotosFromCache();
-                    ShowToast(DescribeSyncResult(syncResult, checkedAtUtc.ToLocalTime()));
+                    ShowToast(DescribeSyncResult(syncResult));
                 });
             }
             catch (PhotoSourceException syncFailure)
@@ -1127,18 +1130,14 @@ namespace PhotoFrame
         /// Текст статуса. Отдельно показывает, сколько кадров пришлось качать, — так видно,
         /// что повторная синхронизация не перекачивает всё заново.
         /// </summary>
-        private static string DescribeSyncResult(AlbumSyncResult syncResult, DateTime checkedAtLocal)
+        private static string DescribeSyncResult(AlbumSyncResult syncResult)
         {
             string statusText;
             if (syncResult.DownloadedCount == 0 && syncResult.RemovedCount == 0)
             {
-                // Со временем проверки видно, что рамка действительно сходила к источнику:
-                // без него «Без изменений» неотличимо от строки, висящей с прошлого раза.
-                // Дата не нужна: сообщение живёт пять секунд, и «сегодня» — единственный
-                // возможный день.
-                string checkedAt = checkedAtLocal.ToString("HH:mm", CultureInfo.CurrentCulture);
-
-                statusText = $"Без изменений ({checkedAt}): {syncResult.TotalPhotoCount} фото";
+                // Ни времени, ни даты: сообщение и так живёт пять секунд и появляется
+                // сразу после проверки, так что «когда» очевидно из самого его появления.
+                statusText = $"Без изменений: {syncResult.TotalPhotoCount} фото";
             }
             else
             {
@@ -1328,6 +1327,7 @@ namespace PhotoFrame
 
             _isCurrentSlideVideo = MediaFileTypes.IsVideo(mediaPath);
             _currentVideoPath = _isCurrentSlideVideo ? mediaPath : null;
+            _currentAlbumVideoPoster = null;
             UpdateTapRevealedOverlays();
 
             // Подпись читается для любого кадра, и для видео тоже: дата съёмки есть
@@ -1456,9 +1456,47 @@ namespace PhotoFrame
 
             _isCurrentSlideVideo = true;
             _currentVideoPath = videoPath;
+            _currentAlbumVideoPoster = posterPath;
             UpdateTapRevealedOverlays();
 
             StartVideoPlayback();
+        }
+
+        /// <summary>
+        /// Клип не открылся: отмечаем его и идём дальше.
+        /// </summary>
+        /// <remarks>
+        /// Часть видео Google хранит в VP9, а на рамке этот кодек только программный —
+        /// такие файлы проигрыватель не открывает вовсе и показывает нулевую длину.
+        /// Отметка не даёт качать их снова на каждом круге.
+        /// </remarks>
+        private void OnVideoPlaybackFailed(object? sender, EventArgs e)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                string? posterPath = _currentAlbumVideoPoster;
+
+                StopVideoPlayback();
+                AlbumVideoBadge.IsVisible = false;
+
+                if (posterPath is not null)
+                {
+                    AlbumVideoCache.MarkUnplayable(posterPath);
+                    ShowToast("Это видео рамка не проигрывает — оставили кадром");
+                }
+
+                _isCurrentSlideVideo = false;
+                _currentVideoPath = null;
+                _currentAlbumVideoPoster = null;
+                UpdateTapRevealedOverlays();
+
+                // Показ продолжается: на экране остаётся заставка, а дальше обычный ход.
+                if (_localPhotoPaths.Count > 0 && _isNightModeActive != true)
+                {
+                    _slideshowTimer.Stop();
+                    _slideshowTimer.Start();
+                }
+            });
         }
 
         /// <summary>Отметка «за этим кадром видео» с его длительностью.</summary>

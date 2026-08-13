@@ -27,6 +27,7 @@ namespace PhotoFrame
     internal static class AlbumVideoCache
     {
         private const string IndexFileName = "album.videos";
+        private const string SkipListFileName = "album.videos.skip";
         private const string AlbumUrlKey = "album_resolved_url";
 
         /// <summary>
@@ -40,6 +41,35 @@ namespace PhotoFrame
 
         private static string IndexPath =>
             IoPath.Combine(SharedAlbumPhotoSource.PhotoLibraryDirectory, IndexFileName);
+
+        private static string SkipListPath =>
+            IoPath.Combine(SharedAlbumPhotoSource.PhotoLibraryDirectory, SkipListFileName);
+
+        /// <summary>
+        /// Куда складываются скачанные клипы.
+        /// </summary>
+        /// <remarks>
+        /// Общая память, а не личная папка приложения: проигрыватель живёт в отдельном
+        /// процессе mediaserver и файл из /data/user/0/… открыть не может — подготовка
+        /// падает с «error (1, 246)». Не годится и Android/data/&lt;пакет&gt;: этот каталог
+        /// тоже закрыт от чужих процессов, проверено на рамке. Видео из папок на
+        /// устройстве играют именно потому, что лежат в общей памяти.
+        ///
+        /// Имя каталога — Cache: обход папок пропускает такие по имени, поэтому свои же
+        /// клипы не попадут в слайд-шоу как локальные файлы.
+        /// </remarks>
+        private static string VideoDirectory
+        {
+            get
+            {
+                string? sharedStorageRoot =
+                    Android.OS.Environment.ExternalStorageDirectory?.AbsolutePath;
+
+                return string.IsNullOrEmpty(sharedStorageRoot)
+                    ? IoPath.Combine(SharedAlbumPhotoSource.PhotoLibraryDirectory, "album_videos")
+                    : IoPath.Combine(sharedStorageRoot, "PhotoFrame", "Cache");
+            }
+        }
 
         /// <summary>
         /// True, если список видео уже составлен.
@@ -96,10 +126,80 @@ namespace PhotoFrame
         public static bool IsVideoPoster(string posterPath) => FindItemId(posterPath) is not null;
 
         /// <summary>
+        /// Помечает клип непроигрываемым: больше не качаем и не пробуем.
+        /// </summary>
+        /// <remarks>
+        /// Google хранит часть видео в VP9, а на рамке этот кодек только программный —
+        /// такие клипы проигрыватель не открывает. Отметка избавляет от повторной
+        /// загрузки десятков мегабайт на каждом круге показа, а сам кадр остаётся
+        /// в слайд-шоу заставкой.
+        /// </remarks>
+        public static void MarkUnplayable(string posterPath)
+        {
+            string posterFileName = IoPath.GetFileName(posterPath);
+            TryDelete(BuildVideoPath(posterPath));
+
+            var skipped = new List<string>(ReadSkipList());
+            if (skipped.Contains(posterFileName, StringComparer.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            skipped.Add(posterFileName);
+            FrameLog.Warn($"Клип отмечен непроигрываемым: {posterFileName}");
+
+            try
+            {
+                File.WriteAllLines(SkipListPath, skipped);
+            }
+            catch (Exception writeFailure) when (
+                writeFailure is IOException or UnauthorizedAccessException)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"Список непроигрываемых не сохранён: {writeFailure.Message}");
+            }
+        }
+
+        private static bool IsUnplayable(string posterPath)
+        {
+            string posterFileName = IoPath.GetFileName(posterPath);
+
+            foreach (string line in ReadSkipList())
+            {
+                if (line.Trim().Equals(posterFileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string[] ReadSkipList()
+        {
+            try
+            {
+                return File.Exists(SkipListPath)
+                    ? File.ReadAllLines(SkipListPath)
+                    : Array.Empty<string>();
+            }
+            catch (Exception readFailure) when (
+                readFailure is IOException or UnauthorizedAccessException)
+            {
+                return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>
         /// Длительность видео за заставкой в миллисекундах; 0 — это не видео.
         /// </summary>
         public static int FindVideoDuration(string posterPath)
         {
+            if (IsUnplayable(posterPath))
+            {
+                return 0;
+            }
+
             string posterFileName = IoPath.GetFileName(posterPath);
 
             foreach (string line in ReadIndex())
@@ -116,11 +216,52 @@ namespace PhotoFrame
             return 0;
         }
 
-        /// <summary>Путь к уже скачанному клипу либо null.</summary>
+        /// <summary>Путь к уже скачанному годному клипу либо null.</summary>
         public static string? FindReadyVideo(string posterPath)
         {
             string videoPath = BuildVideoPath(posterPath);
-            return File.Exists(videoPath) ? videoPath : null;
+
+            if (!File.Exists(videoPath))
+            {
+                return null;
+            }
+
+            if (IsPlayableVideoFile(videoPath))
+            {
+                return videoPath;
+            }
+
+            // Обрезанный или подменённый страницей ошибки файл проигрыватель всё равно
+            // не откроет: убираем, чтобы скачать заново.
+            FrameLog.Warn($"Кэшированный клип негоден, убираем: {videoPath}");
+            TryDelete(videoPath);
+            return null;
+        }
+
+        /// <summary>
+        /// Проверяет, что файл действительно mp4: у контейнера на четвёртом байте стоит
+        /// «ftyp». Ошибку от сервера, отданную с кодом 200, иначе не отличить от клипа.
+        /// </summary>
+        private static bool IsPlayableVideoFile(string videoPath)
+        {
+            try
+            {
+                var header = new byte[12];
+
+                using FileStream file = File.OpenRead(videoPath);
+                if (file.Read(header, 0, header.Length) < header.Length)
+                {
+                    return false;
+                }
+
+                return header[4] == (byte)'f' && header[5] == (byte)'t'
+                    && header[6] == (byte)'y' && header[7] == (byte)'p';
+            }
+            catch (Exception readFailure) when (
+                readFailure is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -162,6 +303,7 @@ namespace PhotoFrame
         {
             string videoPath = BuildVideoPath(posterPath);
             string temporaryPath = videoPath + ".tmp";
+            Directory.CreateDirectory(VideoDirectory);
 
             // Свой клиент: у страницы альбома свой, живущий в источнике снимков, и делить
             // его между слоями незачем.
@@ -221,9 +363,12 @@ namespace PhotoFrame
             }
         }
 
-        /// <summary>Клип лежит рядом с заставкой под тем же именем.</summary>
-        private static string BuildVideoPath(string posterPath) =>
-            IoPath.ChangeExtension(posterPath, ".mp4");
+        /// <summary>Клип называется так же, как заставка, но лежит во внешнем каталоге.</summary>
+        private static string BuildVideoPath(string posterPath)
+        {
+            string videoFileName = IoPath.ChangeExtension(IoPath.GetFileName(posterPath), ".mp4");
+            return IoPath.Combine(VideoDirectory, videoFileName);
+        }
 
         private static string? FindItemId(string posterPath)
         {

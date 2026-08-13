@@ -81,13 +81,12 @@ namespace PhotoFrame
 
         private void OnError(object? sender, MediaPlayer.ErrorEventArgs e)
         {
-            // Нечитаемый файл не должен останавливать слайд-шоу: сообщаем о завершении,
-            // и страница переходит к следующему кадру.
-            System.Diagnostics.Debug.WriteLine(
-                $"Видео не воспроизведено: what={e.What}, extra={e.Extra}");
+            // Нечитаемый файл не должен останавливать слайд-шоу: страница узнает об отказе
+            // и перейдёт к следующему кадру, а клип отметит как непроигрываемый.
+            FrameLog.Warn($"Видео не воспроизведено: what={e.What}, extra={e.Extra}");
 
             e.Handled = true;
-            VirtualView?.RaisePlaybackFinished();
+            VirtualView?.RaisePlaybackFailed();
         }
 
         /// <summary>
