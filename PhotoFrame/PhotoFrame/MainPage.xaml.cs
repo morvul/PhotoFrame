@@ -85,6 +85,12 @@ namespace PhotoFrame
         /// <summary>Минута, для которой датчики уже перечитаны.</summary>
         private string? _lastSensorMinute;
 
+        /// <summary>
+        /// Показания датчиков одной строкой. Ночью попадают в сам кадр часов, поэтому
+        /// нужны отдельно от меток наложения.
+        /// </summary>
+        private string? _sensorLineText;
+
         /// <summary>Не даём проверке по таймеру наложиться на нажатие кнопки.</summary>
         private readonly SemaphoreSlim _syncGate = new(1, 1);
 
@@ -372,8 +378,17 @@ namespace PhotoFrame
                         return;
                     }
 
-                    SetOutlinedText(_sensorLabels, string.Join("   ", parts));
+                    _sensorLineText = string.Join("   ", parts);
+                    SetOutlinedText(_sensorLabels, _sensorLineText);
                     SensorHost.IsVisible = _isNightModeActive != true;
+
+                    // Ночью показания входят в сам кадр часов, поэтому его нужно
+                    // перерисовать: минута та же, а значения уже другие.
+                    if (_isNightModeActive == true)
+                    {
+                        _lastRenderedNightMinute = null;
+                        UpdateClock();
+                    }
                 }).ConfigureAwait(true);
             }
             catch (PhotoSourceException sensorFailure)
@@ -606,10 +621,13 @@ namespace PhotoFrame
             {
                 string colorHex = FrameSettings.NightClockColorHex;
 
+                // Датчики показываются и ночью, но только если их вообще просили показывать.
+                string? sensorText = FrameSettings.ShowSensors ? _sensorLineText : null;
+
                 Android.Graphics.Bitmap renderedFrame = await Task.Run(
                     () => NightClockRenderer.RenderBitmap(
-                        widthPixels, heightPixels, formattedTime, formattedDate, phaseShifted,
-                        colorHex))
+                        widthPixels, heightPixels, formattedTime, formattedDate, sensorText,
+                        phaseShifted, colorHex))
                     .ConfigureAwait(true);
 
                 ShowNightClockFrame(renderedFrame);
@@ -1275,7 +1293,7 @@ namespace PhotoFrame
             // куда полезнее знать, что снимок пришёл из Google Photos.
             string frameLabel = MediaTrash.IsAlbumPhoto(mediaPath)
                 ? "Google Photos"
-                : Path.GetFileName(mediaPath);
+                : MediaLabelFormatter.Describe(mediaPath);
 
             SetOutlinedText(
                 _photoCounterLabels, $"{frameLabel}  ·  {_currentPhotoIndex + 1}/{photoCount}");
@@ -1396,6 +1414,10 @@ namespace PhotoFrame
 
             PhotoCounterHost.IsVisible =
                 _localPhotoPaths.Count > 0 && _currentPhotoIndex >= 0 && isDayTime && panelVisible;
+
+            // Ночью показывать нечего: обновлять, смотреть сведения и убирать кадр —
+            // всё это про снимок, которого на экране нет. Настройки остаются.
+            PanelLeftButtons.IsVisible = isDayTime;
 
             PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
             RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;

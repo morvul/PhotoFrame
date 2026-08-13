@@ -29,6 +29,12 @@ namespace PhotoFrame
         private const float DateSizeFraction = 0.13f;
 
         /// <summary>
+        /// Размер строки датчиков относительно размера времени. Чуть крупнее даты:
+        /// показания читают с другого конца комнаты, а дату — заодно с часами.
+        /// </summary>
+        private const float SensorSizeFraction = 0.16f;
+
+        /// <summary>
         /// Рисует кадр с часами. Вызывать в фоновом потоке: отрисовка кадра 1280x800
         /// на такой рамке занимает заметное время.
         /// </summary>
@@ -45,11 +51,15 @@ namespace PhotoFrame
         /// светятся уже другие пиксели.
         /// </param>
         /// <param name="colorHex">Цвет часов из <see cref="NightClockPalette"/>.</param>
+        /// <param name="sensorText">
+        /// Показания датчиков одной строкой. Пусто — строка не рисуется.
+        /// </param>
         public static Bitmap RenderBitmap(
             int widthPixels,
             int heightPixels,
             string timeText,
             string? dateText,
+            string? sensorText,
             bool phaseShifted,
             string colorHex)
         {
@@ -91,17 +101,35 @@ namespace PhotoFrame
             float dateTextSize = timeTextSize * DateSizeFraction;
             float dateBlockHeight = hasDate ? dateTextSize * 1.6f : 0f;
 
+            bool hasSensors = !string.IsNullOrEmpty(sensorText);
+            float sensorTextSize = timeTextSize * SensorSizeFraction;
+            float sensorBlockHeight = hasSensors ? sensorTextSize * 1.7f : 0f;
+
+            // Весь блок центрируется целиком: иначе время съезжало бы вверх на каждую
+            // добавленную под ним строку.
             float centreX = widthPixels / 2f;
             float timeBaselineY =
-                (heightPixels - dateBlockHeight) / 2f + timeBounds.Height() / 2f;
+                (heightPixels - dateBlockHeight - sensorBlockHeight) / 2f
+                + timeBounds.Height() / 2f;
 
             canvas.DrawText(timeText, centreX, timeBaselineY, textPaint);
+
+            textPaint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Normal));
 
             if (hasDate)
             {
                 textPaint.TextSize = dateTextSize;
-                textPaint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Normal));
                 canvas.DrawText(dateText!, centreX, timeBaselineY + dateBlockHeight, textPaint);
+            }
+
+            if (hasSensors)
+            {
+                textPaint.TextSize = sensorTextSize;
+                canvas.DrawText(
+                    sensorText!,
+                    centreX,
+                    timeBaselineY + dateBlockHeight + sensorBlockHeight,
+                    textPaint);
             }
 
             return frame;

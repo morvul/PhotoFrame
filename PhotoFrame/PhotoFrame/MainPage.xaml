@@ -214,7 +214,8 @@
                 а не надписи, — обновление и так идёт само, кнопка лишь избавляет
                 от ожидания очередной проверки.
             -->
-            <VerticalStackLayout Grid.Column="0" Spacing="10" VerticalOptions="Start">
+            <VerticalStackLayout x:Name="PanelLeftButtons"
+                                 Grid.Column="0" Spacing="10" VerticalOptions="Start">
                 <Button x:Name="SyncButton"
                         Text="🔄"
                         Clicked="OnSyncClicked"
