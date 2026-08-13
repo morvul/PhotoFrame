@@ -92,6 +92,16 @@
                                     TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
                                     VerticalOptions="Center" />
                         </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                            <VerticalStackLayout Grid.Column="0">
+                                <Label Text="Скачивать видео из альбома" TextColor="White" FontSize="16" />
+                                <Label Text="Видео весят куда больше снимков. Выключено — они не показываются"
+                                       TextColor="Gray" FontSize="13" />
+                            </VerticalStackLayout>
+                            <Switch Grid.Column="1" x:Name="AlbumVideosSwitch"
+                                    OnColor="#4FC3F7" VerticalOptions="Center" />
+                        </Grid>
                     </VerticalStackLayout>
 
                     <Grid ColumnDefinitions="*,Auto">

@@ -152,6 +152,15 @@ namespace PhotoFrame
         /// <summary>Кадр, о котором спрашивает выдвинутое подтверждение.</summary>
         private string? _pendingRemovalPath;
 
+        /// <summary>
+        /// Файл, который проигрывается на текущем слайде.
+        /// </summary>
+        /// <remarks>
+        /// Для видео из папки это сам слайд, а для кадра альбома — догруженный клип,
+        /// лежащий рядом с заставкой.
+        /// </remarks>
+        private string? _currentVideoPath;
+
         public MainPage()
         {
             InitializeComponent();
@@ -1124,8 +1133,9 @@ namespace PhotoFrame
             {
                 // Со временем проверки видно, что рамка действительно сходила к источнику:
                 // без него «Без изменений» неотличимо от строки, висящей с прошлого раза.
-                string checkedAt = checkedAtLocal.ToString(
-                    "dd.MM HH:mm", CultureInfo.CurrentCulture);
+                // Дата не нужна: сообщение живёт пять секунд, и «сегодня» — единственный
+                // возможный день.
+                string checkedAt = checkedAtLocal.ToString("HH:mm", CultureInfo.CurrentCulture);
 
                 statusText = $"Без изменений ({checkedAt}): {syncResult.TotalPhotoCount} фото";
             }
@@ -1316,6 +1326,7 @@ namespace PhotoFrame
             MoveClockToNextPosition();
 
             _isCurrentSlideVideo = MediaFileTypes.IsVideo(mediaPath);
+            _currentVideoPath = _isCurrentSlideVideo ? mediaPath : null;
             UpdateTapRevealedOverlays();
 
             // Подпись читается для любого кадра, и для видео тоже: дата съёмки есть
@@ -1329,6 +1340,13 @@ namespace PhotoFrame
                 if (FrameSettings.ShowClock)
                 {
                     _ = PlaceClockOverPhotoAsync(mediaPath, photoGeneration);
+                }
+
+                // За кадром альбома может стоять видео: заставка уже на экране, а сам
+                // клип забирается только теперь — см. AlbumVideoCache.
+                if (AlbumVideoCache.IsVideoPoster(mediaPath))
+                {
+                    _ = PlayAlbumVideoAsync(mediaPath, photoGeneration);
                 }
 
                 return;
@@ -1393,6 +1411,33 @@ namespace PhotoFrame
             }
 
             UpdateTapRevealedOverlays();
+        }
+
+        /// <summary>
+        /// Догружает видео кадра альбома и, если слайд ещё на экране, включает его.
+        /// </summary>
+        /// <remarks>
+        /// Пока клип качается, на экране остаётся заставка — слайд-шоу идёт своим ходом.
+        /// Если кадр за это время сменился, найденный файл просто остаётся в кэше
+        /// и сыграет на следующем круге, уже без ожидания.
+        /// </remarks>
+        private async Task PlayAlbumVideoAsync(string posterPath, int photoGeneration)
+        {
+            string? videoPath = await AlbumVideoCache.TryGetVideoAsync(posterPath)
+                .ConfigureAwait(true);
+
+            if (videoPath is null
+                || photoGeneration != _photoGeneration
+                || _isNightModeActive == true)
+            {
+                return;
+            }
+
+            _isCurrentSlideVideo = true;
+            _currentVideoPath = videoPath;
+            UpdateTapRevealedOverlays();
+
+            StartVideoPlayback();
         }
 
         private async Task ShowVideoPosterAsync(string videoPath, int photoGeneration)
@@ -1465,7 +1510,7 @@ namespace PhotoFrame
         /// </summary>
         private void StartVideoPlayback()
         {
-            if (!_isCurrentSlideVideo || _localPhotoPaths.Count == 0)
+            if (!_isCurrentSlideVideo || _localPhotoPaths.Count == 0 || _currentVideoPath is null)
             {
                 return;
             }
@@ -1475,7 +1520,10 @@ namespace PhotoFrame
 
             VideoPlayer.IsLooping = FrameSettings.VideoRepeat;
             VideoPlayer.IsMuted = FrameSettings.VideoMuted;
-            VideoPlayer.SourcePath = _localPhotoPaths[_currentPhotoIndex];
+
+            // Для кадра альбома путь ведёт к догруженному клипу, а не к самому слайду:
+            // слайд — это заставка.
+            VideoPlayer.SourcePath = _currentVideoPath;
             VideoPlayer.IsVisible = true;
             VideoPlayer.Play();
 

@@ -36,7 +36,20 @@ namespace PhotoFrame
 
         private const string AlbumSignatureKey = "shared_album_signature";
 
+        /// <summary>
+        /// Предел на размер одного видео. Клип на минуту весит десятки мегабайт, но
+        /// найдётся и такой, что займёт всю память рамки, — а места там гигабайты.
+        /// </summary>
+        private const long MaxVideoBytes = 200L * 1024 * 1024;
+
         private readonly HttpClient _httpClient;
+
+        /// <summary>
+        /// Адрес альбома после переходов: короткая ссылка photos.app.goo.gl ведёт на
+        /// /share/&lt;альбом&gt;?key=…, и только оттуда можно собрать адрес страницы
+        /// отдельного кадра, где лежит ссылка на видео.
+        /// </summary>
+        private Uri? _resolvedAlbumUri;
 
         public SharedAlbumPhotoSource()
         {
@@ -70,29 +83,29 @@ namespace PhotoFrame
             IProgress<(int Completed, int Total)>? progress = null,
             CancellationToken cancellationToken = default)
         {
-            List<string> photoUrls = await GetPhotoUrlsAsync(cancellationToken).ConfigureAwait(false);
+            List<AlbumItem> albumItems = await GetAlbumItemsAsync(cancellationToken).ConfigureAwait(false);
 
             // Убранное в корзину отбрасывается раньше всего: и качать заново не нужно,
             // и в «сколько кадров в альбоме» такие снимки попадать не должны — иначе
             // разница списывалась бы на предел загрузки.
-            RemoveTrashedPhotos(photoUrls);
+            RemoveTrashedItems(albumItems);
 
-            if (photoUrls.Count == 0)
+            if (albumItems.Count == 0)
             {
                 throw new PhotoSourceException("Все кадры альбома убраны в корзину.");
             }
 
             // Лимит применяется здесь, а не при разборе страницы: так известно и сколько
             // кадров в альбоме на самом деле, и об отброшенных можно сообщить.
-            int availableCount = photoUrls.Count;
+            int availableCount = albumItems.Count;
             int photoLimit = FrameSettings.AlbumPhotoLimit;
 
-            if (photoLimit > 0 && photoUrls.Count > photoLimit)
+            if (photoLimit > 0 && albumItems.Count > photoLimit)
             {
-                photoUrls.RemoveRange(photoLimit, photoUrls.Count - photoLimit);
+                albumItems.RemoveRange(photoLimit, albumItems.Count - photoLimit);
             }
 
-            string albumSignature = ComputeAlbumSignature(photoUrls);
+            string albumSignature = ComputeAlbumSignature(BuildPosterUrlList(albumItems));
 
             // Самый частый случай: альбом не менялся, диск можно вообще не трогать.
             if (!forceRefresh && IsAlreadyDownloaded(albumSignature))
@@ -103,16 +116,28 @@ namespace PhotoFrame
             }
 
             AlbumSyncResult result =
-                await SyncPhotosAsync(photoUrls, progress, cancellationToken).ConfigureAwait(false);
+                await SyncPhotosAsync(albumItems, progress, cancellationToken).ConfigureAwait(false);
 
             return result with { AvailableCount = availableCount };
+        }
+
+        /// <summary>Ссылки на изображения кадров — по ним считается отпечаток альбома.</summary>
+        private static List<string> BuildPosterUrlList(List<AlbumItem> albumItems)
+        {
+            var posterUrls = new List<string>(albumItems.Count);
+            foreach (AlbumItem albumItem in albumItems)
+            {
+                posterUrls.Add(albumItem.PosterUrl);
+            }
+
+            return posterUrls;
         }
 
         /// <summary>
         /// Забирает страницу расшаренного альбома и вытаскивает из неё ссылки на снимки
         /// в том порядке, в котором их перечисляет Google.
         /// </summary>
-        public async Task<List<string>> GetPhotoUrlsAsync(CancellationToken cancellationToken = default)
+        public async Task<List<AlbumItem>> GetAlbumItemsAsync(CancellationToken cancellationToken = default)
         {
             if (!FrameSettings.IsAlbumConfigured)
             {
@@ -124,16 +149,28 @@ namespace PhotoFrame
             string albumPageHtml = await FetchAlbumPageAsync(
                 FrameSettings.SharedAlbumUrl, cancellationToken).ConfigureAwait(false);
 
-            List<string> photoUrls = AlbumPhotoUrlExtractor.Extract(albumPageHtml);
+            List<AlbumItem> albumItems = AlbumItemExtractor.Extract(albumPageHtml);
 
-            if (photoUrls.Count == 0)
+            if (albumItems.Count == 0)
+            {
+                // Запасной разбор — по одним ссылкам на изображения. Вёрстка страницы
+                // недокументированная: если Google переставит поля записей, кадры всё
+                // равно покажутся, просто без видео.
+                foreach (string photoUrl in AlbumPhotoUrlExtractor.Extract(albumPageHtml))
+                {
+                    albumItems.Add(new AlbumItem(
+                        ItemId: string.Empty, photoUrl, VideoDurationMilliseconds: 0));
+                }
+            }
+
+            if (albumItems.Count == 0)
             {
                 throw new PhotoSourceException(
                     "В странице альбома не найдено ни одной ссылки на снимок. " +
                     "Проверьте, что ссылка на альбом ещё действует и открыт публичный доступ.");
             }
 
-            return photoUrls;
+            return albumItems;
         }
 
         private async Task<string> FetchAlbumPageAsync(string shareUrl, CancellationToken cancellationToken)
@@ -165,6 +202,14 @@ namespace PhotoFrame
                     throw new PhotoSourceException(
                         $"Страница альбома недоступна ({(int)response.StatusCode}). " +
                         "Возможно, доступ по ссылке отключён.");
+                }
+
+                // Запоминаем адрес после переходов: из него собираются адреса страниц
+                // отдельных кадров, а в них — ссылки на видео.
+                _resolvedAlbumUri = response.RequestMessage?.RequestUri;
+                if (_resolvedAlbumUri is not null)
+                {
+                    AlbumVideoCache.RememberAlbumUrl(_resolvedAlbumUri.ToString());
                 }
 
                 return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -200,44 +245,57 @@ namespace PhotoFrame
         /// Сообщает, сколько из подлежащих скачиванию снимков уже готово.
         /// </param>
         public async Task<AlbumSyncResult> SyncPhotosAsync(
-            List<string> photoUrls,
+            List<AlbumItem> albumItems,
             IProgress<(int Completed, int Total)>? downloadProgress = null,
             CancellationToken cancellationToken = default)
         {
-            ArgumentNullException.ThrowIfNull(photoUrls);
+            ArgumentNullException.ThrowIfNull(albumItems);
 
             string photoDirectory = PhotoLibraryDirectory;
             Directory.CreateDirectory(photoDirectory);
             RemoveLeftoverTempFiles(photoDirectory);
 
-            // Имя файла выводится из ссылки, поэтому один и тот же снимок всегда
+            // Имя файла выводится из ссылки, поэтому один и тот же кадр всегда
             // отображается в один и тот же файл — на этом и держится инкрементальность.
-            var desiredFileNames = new List<string>(photoUrls.Count);
-            var missingPhotos = new List<(string Url, string FileName)>();
+            var desiredFileNames = new List<string>(albumItems.Count);
+            var missingItems = new List<(AlbumItem Item, string FileName)>();
 
-            foreach (string photoUrl in photoUrls)
+            foreach (AlbumItem albumItem in albumItems)
             {
-                string fileName = BuildCacheFileName(photoUrl);
+                if (albumItem.IsVideo && !FrameSettings.DownloadAlbumVideos)
+                {
+                    // Видео выключены — кадр не показывается вовсе: заставка без
+                    // возможности воспроизвести только сбивает с толку.
+                    continue;
+                }
+
+                // И у видео качается только кадр-заставка: сам файл забирается, когда
+                // слайд-шоу до него дойдёт, — иначе первая же синхронизация тянула бы
+                // десятки мегабайт ради кадров, которые могут и не показаться.
+                string fileName = BuildPosterFileName(albumItem);
                 desiredFileNames.Add(fileName);
 
                 if (!File.Exists(Path.Combine(photoDirectory, fileName)))
                 {
-                    missingPhotos.Add((photoUrl, fileName));
+                    missingItems.Add((albumItem, fileName));
                 }
             }
 
             int downloadedCount = 0;
-            for (int missingIndex = 0; missingIndex < missingPhotos.Count; missingIndex++)
+            for (int missingIndex = 0; missingIndex < missingItems.Count; missingIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                (AlbumItem item, string fileName) = missingItems[missingIndex];
+
                 if (await TryDownloadPhotoAsync(
-                        photoDirectory, missingPhotos[missingIndex], cancellationToken).ConfigureAwait(false))
+                        photoDirectory, (item.PosterUrl, fileName), cancellationToken)
+                    .ConfigureAwait(false))
                 {
                     downloadedCount++;
                 }
 
-                downloadProgress?.Report((missingIndex + 1, missingPhotos.Count));
+                downloadProgress?.Report((missingIndex + 1, missingItems.Count));
             }
 
             // В манифест попадают только файлы, реально лежащие на диске: неудачная
@@ -259,7 +317,9 @@ namespace PhotoFrame
 
             int removedCount = RemoveFilesOutsideAlbum(photoDirectory, availableFileNames);
             WriteManifest(photoDirectory, availableFileNames);
-            Preferences.Default.Set(AlbumSignatureKey, ComputeAlbumSignature(photoUrls));
+            AlbumVideoCache.WriteIndex(albumItems, BuildPosterFileName);
+            Preferences.Default.Set(
+                AlbumSignatureKey, ComputeAlbumSignature(BuildPosterUrlList(albumItems)));
 
             return new AlbumSyncResult(
                 TotalPhotoCount: availableFileNames.Count,
@@ -320,7 +380,7 @@ namespace PhotoFrame
         /// Сопоставление идёт по имени файла в кэше, то есть по хэшу ссылки: сама ссылка
         /// в списке убранных не хранится — она длинная, а имя файла и так однозначно.
         /// </remarks>
-        private static int RemoveTrashedPhotos(List<string> photoUrls)
+        private static int RemoveTrashedItems(List<AlbumItem> albumItems)
         {
             string[] trashedFileNames = FrameSettings.TrashedAlbumFileNames;
             if (trashedFileNames.Length == 0)
@@ -329,25 +389,50 @@ namespace PhotoFrame
             }
 
             var trashedSet = new HashSet<string>(trashedFileNames, StringComparer.OrdinalIgnoreCase);
-            return photoUrls.RemoveAll(photoUrl => trashedSet.Contains(BuildCacheFileName(photoUrl)));
+            return albumItems.RemoveAll(item => trashedSet.Contains(BuildCacheFileName(item)));
         }
 
-        /// <summary>Имя файла в кэше — короткий хэш ссылки на снимок.</summary>
-        private static string BuildCacheFileName(string photoUrl)
+        /// <summary>
+        /// Имя файла кадра-заставки в кэше — короткий хэш ссылки на изображение.
+        /// </summary>
+        /// <remarks>
+        /// И у видео в кэше лежит заставка: сам клип забирается по требованию и получает
+        /// то же имя с расширением .mp4 — см. <see cref="AlbumVideoCache"/>.
+        /// </remarks>
+        private static string BuildPosterFileName(AlbumItem albumItem)
         {
-            byte[] urlHash = SHA256.HashData(Encoding.UTF8.GetBytes(photoUrl));
+            byte[] urlHash = SHA256.HashData(Encoding.UTF8.GetBytes(albumItem.PosterUrl));
             return string.Concat(Convert.ToHexString(urlHash).AsSpan(0, 20), ".jpg");
         }
 
-        /// <summary>Удаляет снимки, которых больше нет в альбоме.</summary>
+        /// <summary>Имя файла в кэше для ссылки на снимок.</summary>
+        private static string BuildCacheFileName(string photoUrl) =>
+            BuildPosterFileName(new AlbumItem(string.Empty, photoUrl, 0));
+
+        private static string BuildCacheFileName(AlbumItem albumItem) =>
+            BuildPosterFileName(albumItem);
+
+        /// <summary>Удаляет кадры, которых больше нет в альбоме.</summary>
         private static int RemoveFilesOutsideAlbum(string photoDirectory, List<string> keepFileNames)
         {
             var keepSet = new HashSet<string>(keepFileNames, StringComparer.OrdinalIgnoreCase);
             int removedCount = 0;
 
-            foreach (string existingPath in Directory.GetFiles(photoDirectory, "*.jpg"))
+            foreach (string existingPath in Directory.GetFiles(photoDirectory))
             {
-                if (!keepSet.Contains(Path.GetFileName(existingPath)) && TryDeleteFile(existingPath))
+                // Манифест и временные файлы к кадрам не относятся.
+                if (!MediaFileTypes.IsSupportedMedia(existingPath))
+                {
+                    continue;
+                }
+
+                // Догруженный клип лежит под именем своей заставки: он остаётся, пока
+                // заставка в альбоме, иначе каждая синхронизация стирала бы скачанное.
+                string keepName = MediaFileTypes.IsVideo(existingPath)
+                    ? Path.ChangeExtension(Path.GetFileName(existingPath), ".jpg")
+                    : Path.GetFileName(existingPath);
+
+                if (!keepSet.Contains(keepName) && TryDeleteFile(existingPath))
                 {
                     removedCount++;
                 }

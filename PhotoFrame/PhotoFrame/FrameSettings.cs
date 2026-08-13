@@ -36,6 +36,7 @@ namespace PhotoFrame
         private const string ShowCaptureInfoKey = "show_capture_info";
         private const string PanelRevealKey = "panel_reveal_seconds";
         private const string AlbumPhotoLimitKey = "album_photo_limit";
+        private const string DownloadAlbumVideosKey = "download_album_videos";
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
@@ -73,6 +74,20 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(UseSharedAlbumKey, true);
             set => Preferences.Default.Set(UseSharedAlbumKey, value);
+        }
+
+        /// <summary>
+        /// Скачивать из альбома и видео, а не только снимки.
+        /// </summary>
+        /// <remarks>
+        /// Видео весят куда больше снимков, поэтому это отдельный выключатель. Когда он
+        /// выключен, видео не показываются вовсе: заставка без возможности воспроизвести
+        /// только сбивает с толку.
+        /// </remarks>
+        public static bool DownloadAlbumVideos
+        {
+            get => Preferences.Default.Get(DownloadAlbumVideosKey, true);
+            set => Preferences.Default.Set(DownloadAlbumVideosKey, value);
         }
 
         /// <summary>Брать снимки из папок на устройстве.</summary>

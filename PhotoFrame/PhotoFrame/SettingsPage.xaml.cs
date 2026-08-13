@@ -147,6 +147,7 @@ namespace PhotoFrame
                 AlbumLimitPicker.SelectedIndex =
                     Array.IndexOf(FrameSettings.AlbumPhotoLimitChoices, AppSettings.DefaultAlbumPhotoLimit);
             }
+            AlbumVideosSwitch.IsToggled = FrameSettings.DownloadAlbumVideos;
             RecursiveSwitch.IsToggled = FrameSettings.LocalFolderRecursive;
             ShowSelectedFolders();
             ShuffleSwitch.IsToggled = FrameSettings.ShufflePhotos;
@@ -383,6 +384,8 @@ namespace PhotoFrame
         {
             FrameSettings.UseSharedAlbum = UseSharedAlbumSwitch.IsToggled;
             FrameSettings.UseLocalFolders = UseLocalFoldersSwitch.IsToggled;
+
+            FrameSettings.DownloadAlbumVideos = AlbumVideosSwitch.IsToggled;
 
             // Список папок редактируется только на FolderPickerPage, здесь он не трогается.
             FrameSettings.LocalFolderRecursive = RecursiveSwitch.IsToggled;
