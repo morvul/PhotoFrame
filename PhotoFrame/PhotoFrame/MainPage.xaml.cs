@@ -916,7 +916,15 @@ namespace PhotoFrame
                 return;
             }
 
-            FileInfoPage.MediaPath = _localPhotoPaths[_currentPhotoIndex];
+            string mediaPath = _localPhotoPaths[_currentPhotoIndex];
+
+            // У кадра альбома слайд — это заставка, а сведения нужны о самом клипе:
+            // его размер, разрешение и длительность. Пока клип не скачан, показываем
+            // то, что есть, — заставку.
+            FileInfoPage.MediaPath = _currentVideoPath
+                                     ?? AlbumVideoCache.FindReadyVideo(mediaPath)
+                                     ?? mediaPath;
+
             await Shell.Current.GoToAsync(nameof(FileInfoPage));
         }
 
