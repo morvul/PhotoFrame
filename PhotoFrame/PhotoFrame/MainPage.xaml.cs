@@ -324,6 +324,10 @@ namespace PhotoFrame
             // Уходя со страницы, освобождаем проигрыватель: иначе звук продолжится
             // на экране настроек.
             StopVideoPlayback();
+
+            // И возвращаем обычную яркость: окно одно на все страницы, и приглушённый
+            // экран сделал бы настройки нечитаемыми.
+            ApplyScreenBrightness(nightMode: false);
         }
 
         /// <summary>
@@ -483,6 +487,7 @@ namespace PhotoFrame
 
             _isNightModeActive = shouldBeNight;
             NightOverlay.IsVisible = shouldBeNight;
+            ApplyScreenBrightness(shouldBeNight);
 
             // Кадр часов рисуется заново при каждом входе в ночной режим.
             _lastRenderedNightMinute = null;
@@ -526,15 +531,48 @@ namespace PhotoFrame
         private void ApplyNightClockAppearance()
         {
             var clockColor = Color.FromArgb(FrameSettings.NightClockColorHex);
-            double brightness =
-                Math.Clamp(FrameSettings.NightClockBrightnessPercent, 1, 100) / 100d;
 
             NightTimeLabel.TextColor = clockColor;
             NightDateLabel.TextColor = clockColor;
+        }
 
-            // Половина: шахматная маска рисованного кадра гасит каждый второй пиксель,
-            // а у обычных меток такой маски нет.
-            NightFallbackClock.Opacity = brightness / 2;
+        /// <summary>
+        /// Приглушает подсветку экрана на время ночных часов.
+        /// </summary>
+        /// <remarks>
+        /// Яркость задаётся окну, а не системе: системная требует особого разрешения
+        /// WRITE_SETTINGS, спорит с автоматическим режимом и осталась бы изменённой
+        /// после удаления приложения. Значение окна перекрывает и автоматику, и действует
+        /// только пока окно на экране.
+        ///
+        /// -1 (BrightnessOverrideNone) возвращает экран к системной яркости.
+        /// </remarks>
+        private static void ApplyScreenBrightness(bool nightMode)
+        {
+            int brightnessPercent = FrameSettings.NightScreenBrightnessPercent;
+
+            // 0 — пользователь не захотел, чтобы рамка трогала подсветку.
+            float brightness = nightMode && brightnessPercent > 0
+                ? Math.Clamp(brightnessPercent, 1, 100) / 100f
+                : -1f;
+
+            try
+            {
+                Android.Views.Window? window = Platform.CurrentActivity?.Window;
+                if (window?.Attributes is not Android.Views.WindowManagerLayoutParams attributes)
+                {
+                    return;
+                }
+
+                attributes.ScreenBrightness = brightness;
+                window.Attributes = attributes;
+            }
+            catch (Java.Lang.Throwable brightnessFailure)
+            {
+                // Рамка просто останется на системной яркости.
+                System.Diagnostics.Debug.WriteLine(
+                    $"Яркость экрана не изменена: {brightnessFailure.Message}");
+            }
         }
 
         /// <summary>
@@ -567,12 +605,11 @@ namespace PhotoFrame
             try
             {
                 string colorHex = FrameSettings.NightClockColorHex;
-                int brightnessPercent = FrameSettings.NightClockBrightnessPercent;
 
                 Android.Graphics.Bitmap renderedFrame = await Task.Run(
                     () => NightClockRenderer.RenderBitmap(
                         widthPixels, heightPixels, formattedTime, formattedDate, phaseShifted,
-                        colorHex, brightnessPercent))
+                        colorHex))
                     .ConfigureAwait(true);
 
                 ShowNightClockFrame(renderedFrame);

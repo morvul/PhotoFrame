@@ -45,18 +45,13 @@ namespace PhotoFrame
         /// светятся уже другие пиксели.
         /// </param>
         /// <param name="colorHex">Цвет часов из <see cref="NightClockPalette"/>.</param>
-        /// <param name="brightnessPercent">
-        /// Яркость рисунка в процентах. Шахматная маска гасит половину пикселей поверх
-        /// этого значения, поэтому итоговая яркость примерно вдвое ниже.
-        /// </param>
         public static Bitmap RenderBitmap(
             int widthPixels,
             int heightPixels,
             string timeText,
             string? dateText,
             bool phaseShifted,
-            string colorHex,
-            int brightnessPercent)
+            string colorHex)
         {
             Bitmap frame = Bitmap.CreateBitmap(widthPixels, heightPixels, Bitmap.Config.Argb8888!)!;
             using var canvas = new Canvas(frame);
@@ -74,10 +69,11 @@ namespace PhotoFrame
                 checkerShader.SetLocalMatrix(shaderMatrix);
             }
 
+            // Цифры рисуются в полную силу: приглушает их подсветка экрана, а сверху
+            // ещё и шахматная маска гасит каждый второй пиксель.
             using var textPaint = new AndroidPaint(PaintFlags.AntiAlias)
             {
                 TextAlign = AndroidPaint.Align.Center,
-                Alpha = ToAlpha(brightnessPercent),
             };
 
             textPaint.SetShader(checkerShader);
@@ -122,10 +118,6 @@ namespace PhotoFrame
                 ? probeSize
                 : probeSize * (targetWidth / measuredWidth);
         }
-
-        /// <summary>Проценты яркости в прозрачность краски.</summary>
-        private static int ToAlpha(int brightnessPercent) =>
-            System.Math.Clamp(brightnessPercent, 1, 100) * 255 / 100;
 
         /// <summary>
         /// Плитка 2x2, в которой светятся только пиксели по диагонали.

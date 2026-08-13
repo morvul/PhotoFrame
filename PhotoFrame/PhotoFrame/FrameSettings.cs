@@ -27,7 +27,7 @@ namespace PhotoFrame
         private const string NightStartHourKey = "night_start_hour";
         private const string NightEndHourKey = "night_end_hour";
         private const string NightClockColorKey = "night_clock_color";
-        private const string NightClockBrightnessKey = "night_clock_brightness";
+        private const string NightScreenBrightnessKey = "night_screen_brightness";
         private const string ShowSensorsKey = "show_sensors";
         private const string SensorEntityIdsKey = "sensor_entity_ids";
         private const string SensorIconsKey = "sensor_icons";
@@ -52,8 +52,10 @@ namespace PhotoFrame
         /// <summary>Варианты времени, через которое панель управления сама скрывается.</summary>
         public static readonly int[] PanelRevealChoices = { 3, 5, 10, 20, 30, 60 };
 
-        /// <summary>Варианты яркости ночных часов, проценты.</summary>
-        public static readonly int[] NightClockBrightnessChoices = { 10, 20, 30, 45, 60, 80, 100 };
+        /// <summary>
+        /// Варианты ночной яркости экрана, проценты. 0 — не трогать подсветку.
+        /// </summary>
+        public static readonly int[] NightScreenBrightnessChoices = { 0, 1, 5, 10, 20, 35, 50, 75, 100 };
 
         /// <summary>Варианты задержки запуска после включения рамки, секунды.</summary>
         public static readonly int[] LaunchOnBootDelayChoices = { 0, 10, 20, 30, 60, 120 };
@@ -185,16 +187,19 @@ namespace PhotoFrame
         }
 
         /// <summary>
-        /// Яркость ночных часов в процентах от полной.
+        /// Яркость экрана, пока показаны ночные часы. Проценты; 0 — не вмешиваться.
         /// </summary>
         /// <remarks>
-        /// Это яркость самого рисунка; шахматная маска гасит половину пикселей поверх
-        /// неё, поэтому 60% на экране выглядят примерно как 30% от белого.
+        /// Приглушается именно подсветка, а не рисунок: прозрачностью можно лишь
+        /// приблизить нужный вид, тогда как экран всю ночь светил по-дневному.
+        /// У рамки настоящая управляемая подсветка (`/sys/class/backlight`, 256 шагов),
+        /// а яркость окна её перекрывает и не требует ни прав, ни правки системных
+        /// настроек.
         /// </remarks>
-        public static int NightClockBrightnessPercent
+        public static int NightScreenBrightnessPercent
         {
-            get => Preferences.Default.Get(NightClockBrightnessKey, 60);
-            set => Preferences.Default.Set(NightClockBrightnessKey, value);
+            get => Preferences.Default.Get(NightScreenBrightnessKey, 10);
+            set => Preferences.Default.Set(NightScreenBrightnessKey, value);
         }
 
         /// <summary>

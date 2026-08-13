@@ -74,12 +74,16 @@ namespace PhotoFrame
             return labels;
         }
 
+        /// <summary>0 в списке означает «не трогать подсветку».</summary>
         private static string[] BuildBrightnessChoices()
         {
-            var labels = new string[FrameSettings.NightClockBrightnessChoices.Length];
+            var labels = new string[FrameSettings.NightScreenBrightnessChoices.Length];
             for (int index = 0; index < labels.Length; index++)
             {
-                labels[index] = FrameSettings.NightClockBrightnessChoices[index] + " %";
+                int brightnessPercent = FrameSettings.NightScreenBrightnessChoices[index];
+                labels[index] = brightnessPercent == 0
+                    ? "как в системе"
+                    : brightnessPercent + " %";
             }
 
             return labels;
@@ -170,14 +174,14 @@ namespace PhotoFrame
                 NightClockPalette.IndexOfHex(FrameSettings.NightClockColorHex);
 
             NightBrightnessPicker.SelectedIndex = Array.IndexOf(
-                FrameSettings.NightClockBrightnessChoices,
-                FrameSettings.NightClockBrightnessPercent);
+                FrameSettings.NightScreenBrightnessChoices,
+                FrameSettings.NightScreenBrightnessPercent);
 
             if (NightBrightnessPicker.SelectedIndex < 0)
             {
                 // Сохранено значение не из списка — показываем ближайший разумный вариант.
                 NightBrightnessPicker.SelectedIndex = Array.IndexOf(
-                    FrameSettings.NightClockBrightnessChoices, 60);
+                    FrameSettings.NightScreenBrightnessChoices, 10);
             }
 
             SlideshowIntervalPicker.SelectedIndex = Array.IndexOf(
@@ -424,8 +428,8 @@ namespace PhotoFrame
 
             if (NightBrightnessPicker.SelectedIndex >= 0)
             {
-                FrameSettings.NightClockBrightnessPercent =
-                    FrameSettings.NightClockBrightnessChoices[NightBrightnessPicker.SelectedIndex];
+                FrameSettings.NightScreenBrightnessPercent =
+                    FrameSettings.NightScreenBrightnessChoices[NightBrightnessPicker.SelectedIndex];
             }
 
             FrameSettings.LaunchOnBoot = LaunchOnBootSwitch.IsToggled;
