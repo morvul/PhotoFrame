@@ -241,6 +241,7 @@ namespace PhotoFrame
 
             VideoPlayer.PlaybackFinished += OnVideoPlaybackFinished;
             VideoPlayer.PlaybackFailed += OnVideoPlaybackFailed;
+            VideoPlayer.FirstFrameRendered += OnVideoFirstFrameRendered;
 
             // Разовая запись в журнал: какие форматы устройство вообще умеет
             // декодировать. Нужна, чтобы решать про HEVC и VP9 по данным.
@@ -1589,7 +1590,6 @@ namespace PhotoFrame
             VideoPlayer.IsLooping = false;
             VideoPlayer.IsMuted = true;
             VideoPlayer.SourcePath = clipPath;
-            VideoPlayer.IsVisible = true;
             VideoPlayer.Play();
         }
 
@@ -1694,12 +1694,24 @@ namespace PhotoFrame
             // Для кадра альбома путь ведёт к догруженному клипу, а не к самому слайду:
             // слайд — это заставка.
             VideoPlayer.SourcePath = _currentVideoPath;
-            VideoPlayer.IsVisible = true;
             VideoPlayer.Play();
 
             _isVideoPlaying = true;
             _videoProgressTimer.Start();
             UpdateTapRevealedOverlays();
+        }
+
+        /// <summary>
+        /// Клипу есть что показать — только теперь открываем проигрыватель.
+        /// </summary>
+        /// <remarks>
+        /// Пока он готовится, на экране остаётся снимок: раньше проигрыватель
+        /// показывался сразу и на смене кадра мелькал чёрным, особенно когда следующий
+        /// клип другой ориентации.
+        /// </remarks>
+        private void OnVideoFirstFrameRendered(object? sender, EventArgs e)
+        {
+            MainThread.BeginInvokeOnMainThread(() => VideoPlayer.IsVisible = true);
         }
 
         private void OnVideoProgressTimerElapsed(object? sender, ElapsedEventArgs e)

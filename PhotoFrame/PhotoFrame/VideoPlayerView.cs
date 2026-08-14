@@ -56,6 +56,15 @@ namespace PhotoFrame
         /// </remarks>
         public event EventHandler? PlaybackFailed;
 
+        /// <summary>
+        /// Первый кадр клипа отрисован.
+        /// </summary>
+        /// <remarks>
+        /// До этого момента проигрыватель нечего показывать: пока он готовится, на экране
+        /// должен оставаться снимок, иначе на смене кадра видна чёрная вспышка.
+        /// </remarks>
+        public event EventHandler? FirstFrameRendered;
+
         /// <summary>Начать или продолжить воспроизведение.</summary>
         public void Play() => Handler?.Invoke(nameof(Play));
 
@@ -82,5 +91,9 @@ namespace PhotoFrame
         /// <summary>Вызывается, когда файл не удалось воспроизвести.</summary>
         internal void RaisePlaybackFailed() =>
             PlaybackFailed?.Invoke(this, EventArgs.Empty);
+
+        /// <summary>Вызывается платформенным обработчиком на первом кадре.</summary>
+        internal void RaiseFirstFrameRendered() =>
+            FirstFrameRendered?.Invoke(this, EventArgs.Empty);
     }
 }

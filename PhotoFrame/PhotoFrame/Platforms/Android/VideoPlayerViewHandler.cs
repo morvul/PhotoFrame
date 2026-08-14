@@ -70,6 +70,13 @@ namespace PhotoFrame
                 UseController = false,
             };
 
+            // Заслонка PlayerView по умолчанию чёрная и накрывает всё, пока клип
+            // готовится: на смене кадра между живыми фото это выглядело чёрной вспышкой,
+            // особенно когда следующий клип другой ориентации. Прозрачная заслонка
+            // оставляет на виду сам снимок, поверх которого клип и появится.
+            playerView.SetShutterBackgroundColor(0);
+            playerView.SetBackgroundColor(Android.Graphics.Color.Transparent);
+
             // Кадр вписывается целиком либо обрезается по краям — так же, как снимок:
             // клип живого фото должен совпадать с кадром, из которого он вырастает.
             playerView.ResizeMode = FrameSettings.FillScreen
@@ -130,6 +137,8 @@ namespace PhotoFrame
         }
 
         private void RaiseFinished() => VirtualView?.RaisePlaybackFinished();
+
+        private void RaiseFirstFrame() => VirtualView?.RaiseFirstFrameRendered();
 
         private void RaiseFailed(string reason)
         {
@@ -211,6 +220,8 @@ namespace PhotoFrame
                     _handler.RaiseFinished();
                 }
             }
+
+            public void OnRenderedFirstFrame() => _handler.RaiseFirstFrame();
 
             public void OnPlayerError(PlaybackException? error) =>
                 _handler.RaiseFailed($"{error?.ErrorCodeName}: {error?.Message}");
