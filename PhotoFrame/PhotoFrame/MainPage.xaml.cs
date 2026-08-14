@@ -241,6 +241,10 @@ namespace PhotoFrame
 
             VideoPlayer.PlaybackFinished += OnVideoPlaybackFinished;
             VideoPlayer.PlaybackFailed += OnVideoPlaybackFailed;
+
+            // Разовая запись в журнал: какие форматы устройство вообще умеет
+            // декодировать. Нужна, чтобы решать про HEVC и VP9 по данным.
+            CodecProbe.LogVideoDecoders();
         }
 
         /// <summary>

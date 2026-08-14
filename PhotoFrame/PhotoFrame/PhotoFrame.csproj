@@ -6,8 +6,7 @@
 		secrets.props.template. Сборка без него проходит, но приложение сообщит,
 		что не настроено. См. README.
 	-->
-	<Import Project="$(MSBuildThisFileDirectory)secrets.props"
-	        Condition="Exists('$(MSBuildThisFileDirectory)secrets.props')" />
+	<Import Project="$(MSBuildThisFileDirectory)secrets.props" Condition="Exists('$(MSBuildThisFileDirectory)secrets.props')" />
 
 	<PropertyGroup>
 		<!-- 1. CRITICAL: We isolate the target strictly to Android to completely stop iOS/Windows build tasks -->
@@ -34,6 +33,13 @@
 
 		<!-- 2. CRITICAL: We override the min SDK to match your Frameo frame's Android 8.1 architecture -->
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">27.0</SupportedOSPlatformVersion>
+
+		<!--
+			NU1608: Media3 тянет свои версии AndroidX, а MAUI — свои, и NuGet сообщает о каждом
+			расхождении по два раза. Сборка рабочая, а из-за двадцати одинаковых предупреждений
+			не видно настоящих.
+		-->
+		<NoWarn>$(NoWarn);NU1608</NoWarn>
 	</PropertyGroup>
 
 	<!--
@@ -71,6 +77,8 @@
 		-->
 		<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.90" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.10" />
+		<PackageReference Include="Xamarin.AndroidX.Media3.ExoPlayer" Version="1.10.1.1" />
+		<PackageReference Include="Xamarin.AndroidX.Media3.Ui" Version="1.10.1.1" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -93,13 +101,9 @@
 			<_GeneratedSecretsFile>$(IntermediateOutputPath)LocalConfig.g.cs</_GeneratedSecretsFile>
 		</PropertyGroup>
 
-		<Warning Condition="'$(GooglePhotosShareUrl)' == ''"
-		         Text="secrets.props отсутствует или не заполнен: сборка пройдёт, но рамка сообщит, что ссылка на альбом не задана. Скопируйте secrets.props.template в secrets.props." />
+		<Warning Condition="'$(GooglePhotosShareUrl)' == ''" Text="secrets.props отсутствует или не заполнен: сборка пройдёт, но рамка сообщит, что ссылка на альбом не задана. Скопируйте secrets.props.template в secrets.props." />
 
-		<WriteLinesToFile File="$(_GeneratedSecretsFile)"
-		                  Overwrite="true"
-		                  WriteOnlyWhenDifferent="true"
-		                  Lines="// &lt;auto-generated /&gt; Сгенерировано из secrets.props. Не редактировать и не коммитить.;namespace PhotoFrame;{;    internal static class LocalConfig;    {;        public const string SharedAlbumUrl = &quot;$(GooglePhotosShareUrl)&quot;%3B;        public const string HomeAssistantBaseUrl = &quot;$(HomeAssistantBaseUrl)&quot;%3B;        public const string HomeAssistantToken = &quot;$(HomeAssistantToken)&quot;%3B;    };}" />
+		<WriteLinesToFile File="$(_GeneratedSecretsFile)" Overwrite="true" WriteOnlyWhenDifferent="true" Lines="// &lt;auto-generated /&gt; Сгенерировано из secrets.props. Не редактировать и не коммитить.;namespace PhotoFrame;{;    internal static class LocalConfig;    {;        public const string SharedAlbumUrl = &quot;$(GooglePhotosShareUrl)&quot;%3B;        public const string HomeAssistantBaseUrl = &quot;$(HomeAssistantBaseUrl)&quot;%3B;        public const string HomeAssistantToken = &quot;$(HomeAssistantToken)&quot;%3B;    };}" />
 
 		<ItemGroup>
 			<Compile Include="$(_GeneratedSecretsFile)" />
