@@ -9,9 +9,23 @@ namespace PhotoFrame
     /// </param>
     /// <param name="PosterUrl">Ссылка на изображение: сам снимок либо кадр-заставка видео.</param>
     /// <param name="VideoDurationMilliseconds">Длительность видео; 0 — это снимок.</param>
-    public sealed record AlbumItem(string ItemId, string PosterUrl, int VideoDurationMilliseconds)
+    /// <param name="MotionDurationMilliseconds">
+    /// Длительность клипа «живого фото» — снимка с приложенными секундами движения.
+    /// 0 — обычный снимок.
+    /// </param>
+    public sealed record AlbumItem(
+        string ItemId,
+        string PosterUrl,
+        int VideoDurationMilliseconds,
+        int MotionDurationMilliseconds = 0)
     {
         public bool IsVideo => VideoDurationMilliseconds > 0;
+
+        /// <summary>
+        /// Живое фото: в слайд-шоу это снимок, который может на секунду ожить.
+        /// </summary>
+        public bool IsMotionPhoto => VideoDurationMilliseconds == 0
+                                     && MotionDurationMilliseconds > 0;
     }
 
     /// <summary>
@@ -24,8 +38,8 @@ namespace PhotoFrame
     /// из 300 кадров таких оказалось 7, с длительностями от 5 до 91 секунды.
     ///
     /// Поле "146008172" — это не видео, а «живое фото»: короткий клип, приложенный
-    /// к снимку. Такие кадры остаются снимками, иначе слайд-шоу заполнилось бы
-    /// секундными обрывками.
+    /// к снимку. В слайд-шоу такой кадр остаётся снимком; оживлять его или нет,
+    /// решает настройка, иначе показ заполнился бы секундными обрывками.
     ///
     /// Разбор держится на недокументированной вёрстке, поэтому пустой результат
     /// вызывающий код обязан трактовать как ошибку, а не как «альбом пуст».
@@ -40,6 +54,11 @@ namespace PhotoFrame
 
         /// <summary>Поле с параметрами видео: первое число — длительность в мс.</summary>
         private const string VideoFieldPrefix = "\"76647426\":[";
+
+        /// <summary>
+        /// Поле живого фото: длительность стоит вторым значением, первое всегда null.
+        /// </summary>
+        private const string MotionFieldPrefix = "\"146008172\":[null,";
 
         [GeneratedRegex(
             @"\[""(?<id>AF1Qip[A-Za-z0-9_-]+)"",\[""(?<url>https://lh\d+\.googleusercontent\.com/pw/[A-Za-z0-9_-]+)""")]
@@ -81,22 +100,23 @@ namespace PhotoFrame
                 items.Add(new AlbumItem(
                     itemId,
                     start.Groups["url"].Value,
-                    ReadVideoDuration(entry)));
+                    ReadDuration(entry, VideoFieldPrefix),
+                    ReadDuration(entry, MotionFieldPrefix)));
             }
 
             return items;
         }
 
-        /// <summary>Длительность видео из записи кадра; 0, если это снимок.</summary>
-        private static int ReadVideoDuration(string entry)
+        /// <summary>Длительность из указанного поля записи; 0, если поля нет.</summary>
+        private static int ReadDuration(string entry, string fieldPrefix)
         {
-            int fieldIndex = entry.IndexOf(VideoFieldPrefix, StringComparison.Ordinal);
+            int fieldIndex = entry.IndexOf(fieldPrefix, StringComparison.Ordinal);
             if (fieldIndex < 0)
             {
                 return 0;
             }
 
-            int digitsStart = fieldIndex + VideoFieldPrefix.Length;
+            int digitsStart = fieldIndex + fieldPrefix.Length;
             int digitsEnd = digitsStart;
 
             while (digitsEnd < entry.Length && char.IsAsciiDigit(entry[digitsEnd]))

@@ -102,6 +102,16 @@
                             <Switch Grid.Column="1" x:Name="AlbumVideosSwitch"
                                     OnColor="#4FC3F7" VerticalOptions="Center" />
                         </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                            <VerticalStackLayout Grid.Column="0">
+                                <Label Text="Оживлять живые фото" TextColor="White" FontSize="16" />
+                                <Label Text="Снимок с парой секунд движения проигрывается один раз и остаётся кадром"
+                                       TextColor="Gray" FontSize="13" />
+                            </VerticalStackLayout>
+                            <Switch Grid.Column="1" x:Name="MotionPhotosSwitch"
+                                    OnColor="#4FC3F7" VerticalOptions="Center" />
+                        </Grid>
                     </VerticalStackLayout>
 
                     <Grid ColumnDefinitions="*,Auto">

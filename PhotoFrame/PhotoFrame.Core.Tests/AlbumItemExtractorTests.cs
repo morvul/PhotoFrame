@@ -42,14 +42,36 @@ namespace PhotoFrame.Tests
         }
 
         [Fact]
-        public void TreatsAMotionPhotoAsAPhoto()
+        public void TreatsAMotionPhotoAsAPhotoAndKeepsItsClipLength()
         {
-            // «Живое фото» — снимок с секундным клипом; в слайд-шоу это именно снимок.
+            // «Живое фото» — снимок с секундным клипом: видео это не делает, но
+            // длительность нужна, чтобы кадр можно было оживить.
             List<AlbumItem> items = AlbumItemExtractor.Extract(Page(MotionPhotoEntry));
 
             Assert.Single(items);
             Assert.False(items[0].IsVideo);
             Assert.Equal(0, items[0].VideoDurationMilliseconds);
+            Assert.True(items[0].IsMotionPhoto);
+            Assert.Equal(2197, items[0].MotionDurationMilliseconds);
+        }
+
+        [Fact]
+        public void APlainPhotoIsNeitherVideoNorMotion()
+        {
+            List<AlbumItem> items = AlbumItemExtractor.Extract(Page(PhotoEntry));
+
+            Assert.False(items[0].IsVideo);
+            Assert.False(items[0].IsMotionPhoto);
+        }
+
+        [Fact]
+        public void AVideoIsNotCountedAsMotion()
+        {
+            // У видео поля живого фото нет, но проверка защищает от путаницы полей.
+            List<AlbumItem> items = AlbumItemExtractor.Extract(Page(VideoEntry));
+
+            Assert.True(items[0].IsVideo);
+            Assert.False(items[0].IsMotionPhoto);
         }
 
         [Fact]

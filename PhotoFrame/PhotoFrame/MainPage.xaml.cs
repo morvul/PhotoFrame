@@ -156,6 +156,15 @@ namespace PhotoFrame
         private string? _currentAlbumVideoPoster;
 
         /// <summary>
+        /// Играет клип живого фото, а не видео.
+        /// </summary>
+        /// <remarks>
+        /// Отличается от воспроизведения видео тем, что слайд-шоу не остановлено, кнопок
+        /// управления нет и по окончании кадр не листается.
+        /// </remarks>
+        private bool _isMotionPlayback;
+
+        /// <summary>
         /// Файл, который проигрывается на текущем слайде.
         /// </summary>
         /// <remarks>
@@ -1374,17 +1383,21 @@ namespace PhotoFrame
                     _ = PlaceClockOverPhotoAsync(mediaPath, photoGeneration);
                 }
 
-                // За кадром альбома может стоять видео: заставка уже на экране, а сам
-                // клип забирается только теперь — см. AlbumVideoCache.
-                int albumVideoDuration = AlbumVideoCache.FindVideoDuration(mediaPath);
-                if (albumVideoDuration > 0)
+                // За кадром альбома может стоять клип: заставка уже на экране, а сам
+                // файл забирается только теперь — см. AlbumVideoCache.
+                AlbumVideoCache.AlbumClip? albumClip = AlbumVideoCache.FindClip(mediaPath);
+                AlbumVideoBadge.IsVisible = false;
+
+                if (albumClip is { IsMotionPhoto: false })
                 {
-                    ShowAlbumVideoBadge(albumVideoDuration, isReady: false);
+                    ShowAlbumVideoBadge(albumClip.DurationMilliseconds, isReady: false);
                     _ = PlayAlbumVideoAsync(mediaPath, photoGeneration);
                 }
-                else
+                else if (albumClip is { IsMotionPhoto: true } && FrameSettings.AnimateMotionPhotos)
                 {
-                    AlbumVideoBadge.IsVisible = false;
+                    // Живое фото оживает молча: ни отметки, ни полосы загрузки — кадр
+                    // должен выглядеть снимком, который просто на секунду ожил.
+                    _ = AnimateMotionPhotoAsync(mediaPath, photoGeneration);
                 }
 
                 return;
@@ -1515,6 +1528,7 @@ namespace PhotoFrame
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 string? posterPath = _currentAlbumVideoPoster;
+                bool wasMotionPlayback = _isMotionPlayback;
 
                 StopVideoPlayback();
                 AlbumVideoBadge.IsVisible = false;
@@ -1522,7 +1536,13 @@ namespace PhotoFrame
                 if (posterPath is not null)
                 {
                     AlbumVideoCache.MarkUnplayable(posterPath);
-                    ShowToast("Это видео рамка не проигрывает — оставили кадром");
+
+                    // О живом фото не сообщаем: оно и так остаётся снимком, а сообщение
+                    // на каждый такой кадр было бы навязчивым.
+                    if (!wasMotionPlayback)
+                    {
+                        ShowToast("Это видео рамка не проигрывает — оставили кадром");
+                    }
                 }
 
                 _isCurrentSlideVideo = false;
@@ -1537,6 +1557,36 @@ namespace PhotoFrame
                     _slideshowTimer.Start();
                 }
             });
+        }
+
+        /// <summary>
+        /// Оживляет живое фото: проигрывает клип один раз и оставляет кадр снимком.
+        /// </summary>
+        /// <remarks>
+        /// Слайд-шоу при этом не останавливается: кадр держится своё обычное время, а
+        /// секунда движения — лишь его начало. Так ведут себя живые фото на телефоне,
+        /// и повторять их по кругу незачем.
+        /// </remarks>
+        private async Task AnimateMotionPhotoAsync(string posterPath, int photoGeneration)
+        {
+            string? clipPath = await AlbumVideoCache.TryGetVideoAsync(posterPath)
+                .ConfigureAwait(true);
+
+            if (clipPath is null
+                || photoGeneration != _photoGeneration
+                || _isNightModeActive == true)
+            {
+                return;
+            }
+
+            _isMotionPlayback = true;
+            _currentAlbumVideoPoster = posterPath;
+
+            VideoPlayer.IsLooping = false;
+            VideoPlayer.IsMuted = true;
+            VideoPlayer.SourcePath = clipPath;
+            VideoPlayer.IsVisible = true;
+            VideoPlayer.Play();
         }
 
         /// <summary>Отметка «за этим кадром видео» с его длительностью.</summary>
@@ -1727,6 +1777,14 @@ namespace PhotoFrame
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
+                // Живое фото отыграло свою секунду: гасим проигрыватель и оставляем
+                // кадр на экране — время слайда не кончилось.
+                if (_isMotionPlayback)
+                {
+                    StopVideoPlayback();
+                    return;
+                }
+
                 StopVideoPlayback();
 
                 // Возвращаем обычный ход слайд-шоу и сразу переходим к следующему кадру.
@@ -1749,6 +1807,8 @@ namespace PhotoFrame
             VideoPlayer.SourcePath = null;
             VideoPlayer.IsVisible = false;
             _isVideoPlaying = false;
+
+            _isMotionPlayback = false;
 
             _videoProgressTimer.Stop();
             VideoProgressBar.Progress = 0;

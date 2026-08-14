@@ -27,6 +27,20 @@ namespace PhotoFrame
     internal static class AlbumVideoCache
     {
         private const string IndexFileName = "album.videos";
+
+        /// <summary>Вид записи в списке: обычное видео либо живое фото.</summary>
+        private const string VideoKind = "video";
+        private const string MotionKind = "motion";
+
+        /// <summary>
+        /// Метка формата списка, первой строкой файла.
+        /// </summary>
+        /// <remarks>
+        /// Список, составленный прежней версией, знает только о видео — живых фото в нём
+        /// нет вовсе. Метка позволяет это заметить и пересобрать список, не дожидаясь
+        /// изменений в самом альбоме.
+        /// </remarks>
+        private const string IndexVersionLine = "#v2";
         private const string SkipListFileName = "album.videos.skip";
         private const string AlbumUrlKey = "album_resolved_url";
 
@@ -79,7 +93,15 @@ namespace PhotoFrame
         /// альбома: кэш, набранный прежними версиями, знает только о снимках, и без
         /// полного прохода видео так и остались бы заставками.
         /// </remarks>
-        public static bool HasIndex => File.Exists(IndexPath);
+        public static bool HasIndex
+        {
+            get
+            {
+                string[] lines = ReadIndex(includeHeader: true);
+                return lines.Length > 0 && lines[0].Trim().Equals(
+                    IndexVersionLine, StringComparison.Ordinal);
+            }
+        }
 
         /// <summary>Запоминает адрес альбома после переходов — из него собирается адрес кадра.</summary>
         public static void RememberAlbumUrl(string resolvedAlbumUrl) =>
@@ -90,20 +112,43 @@ namespace PhotoFrame
         /// </summary>
         public static void WriteIndex(List<AlbumItem> albumItems, Func<AlbumItem, string> posterFileName)
         {
-            var lines = new List<string>();
+            var lines = new List<string> { IndexVersionLine };
+            int videoCount = 0;
+            int motionCount = 0;
+
             foreach (AlbumItem albumItem in albumItems)
             {
-                if (albumItem.IsVideo && !string.IsNullOrEmpty(albumItem.ItemId))
+                if (string.IsNullOrEmpty(albumItem.ItemId))
                 {
+                    continue;
+                }
+
+                // Живые фото попадают в список наравне с видео: оживлять их или нет,
+                // решается при показе — так настройку можно переключить без новой
+                // синхронизации.
+                if (albumItem.IsVideo)
+                {
+                    videoCount++;
                     lines.Add(string.Join(
                         '\t',
                         posterFileName(albumItem),
                         albumItem.ItemId,
-                        albumItem.VideoDurationMilliseconds));
+                        albumItem.VideoDurationMilliseconds,
+                        VideoKind));
+                }
+                else if (albumItem.IsMotionPhoto)
+                {
+                    motionCount++;
+                    lines.Add(string.Join(
+                        '\t',
+                        posterFileName(albumItem),
+                        albumItem.ItemId,
+                        albumItem.MotionDurationMilliseconds,
+                        MotionKind));
                 }
             }
 
-            FrameLog.Info($"Видео в альбоме: {lines.Count}");
+            FrameLog.Info($"Видео в альбоме: {videoCount}, живых фото: {motionCount}");
 
             string indexPath = IndexPath;
             string temporaryPath = indexPath + ".tmp";
@@ -122,8 +167,8 @@ namespace PhotoFrame
             }
         }
 
-        /// <summary>True, если за этой заставкой стоит видео.</summary>
-        public static bool IsVideoPoster(string posterPath) => FindItemId(posterPath) is not null;
+        /// <summary>Что стоит за заставкой: чей клип, какой длины и какого вида.</summary>
+        public sealed record AlbumClip(string ItemId, int DurationMilliseconds, bool IsMotionPhoto);
 
         /// <summary>
         /// Помечает клип непроигрываемым: больше не качаем и не пробуем.
@@ -191,13 +236,14 @@ namespace PhotoFrame
         }
 
         /// <summary>
-        /// Длительность видео за заставкой в миллисекундах; 0 — это не видео.
+        /// Клип за этой заставкой либо null: обычный снимок, незнакомый кадр или клип,
+        /// уже отмеченный непроигрываемым.
         /// </summary>
-        public static int FindVideoDuration(string posterPath)
+        public static AlbumClip? FindClip(string posterPath)
         {
             if (IsUnplayable(posterPath))
             {
-                return 0;
+                return null;
             }
 
             string posterFileName = IoPath.GetFileName(posterPath);
@@ -205,15 +251,24 @@ namespace PhotoFrame
             foreach (string line in ReadIndex())
             {
                 string[] parts = line.Split('\t');
-                if (parts.Length >= 3
-                    && parts[0].Equals(posterFileName, StringComparison.OrdinalIgnoreCase)
-                    && int.TryParse(parts[2], out int durationMilliseconds))
+
+                if (parts.Length < 3
+                    || !parts[0].Equals(posterFileName, StringComparison.OrdinalIgnoreCase))
                 {
-                    return durationMilliseconds;
+                    continue;
                 }
+
+                int.TryParse(parts[2], out int durationMilliseconds);
+
+                // Вид записан четвёртым полем и появился позже самого списка: без него
+                // запись означает обычное видео.
+                bool isMotionPhoto = parts.Length >= 4
+                                     && parts[3].Trim().Equals(MotionKind, StringComparison.Ordinal);
+
+                return new AlbumClip(parts[1], durationMilliseconds, isMotionPhoto);
             }
 
-            return 0;
+            return null;
         }
 
         /// <summary>Путь к уже скачанному годному клипу либо null.</summary>
@@ -413,11 +468,32 @@ namespace PhotoFrame
             return null;
         }
 
-        private static string[] ReadIndex()
+        private static string[] ReadIndex(bool includeHeader = false)
         {
             try
             {
-                return File.Exists(IndexPath) ? File.ReadAllLines(IndexPath) : Array.Empty<string>();
+                if (!File.Exists(IndexPath))
+                {
+                    return Array.Empty<string>();
+                }
+
+                string[] lines = File.ReadAllLines(IndexPath);
+                if (includeHeader)
+                {
+                    return lines;
+                }
+
+                // Метка формата — не запись о кадре, и разбирать её не нужно.
+                var entries = new List<string>(lines.Length);
+                foreach (string line in lines)
+                {
+                    if (!line.StartsWith('#'))
+                    {
+                        entries.Add(line);
+                    }
+                }
+
+                return entries.ToArray();
             }
             catch (Exception readFailure) when (
                 readFailure is IOException or UnauthorizedAccessException)

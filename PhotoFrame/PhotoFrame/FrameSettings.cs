@@ -37,6 +37,7 @@ namespace PhotoFrame
         private const string PanelRevealKey = "panel_reveal_seconds";
         private const string AlbumPhotoLimitKey = "album_photo_limit";
         private const string DownloadAlbumVideosKey = "download_album_videos";
+        private const string AnimateMotionPhotosKey = "animate_motion_photos";
         private const string ShowClockKey = "show_clock";
         private const string ShowDateKey = "show_date";
         private const string LastSyncKey = "last_sync_utc";
@@ -88,6 +89,20 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(DownloadAlbumVideosKey, true);
             set => Preferences.Default.Set(DownloadAlbumVideosKey, value);
+        }
+
+        /// <summary>
+        /// Оживлять «живые фото» — снимки с приложенным клипом на пару секунд.
+        /// </summary>
+        /// <remarks>
+        /// По умолчанию выключено: таких кадров в альбоме бывает много (в проверенном —
+        /// 58 из 300), и без спроса менять характер показа не стоит. Клип играется один
+        /// раз, после чего кадр остаётся обычным снимком до конца своего времени.
+        /// </remarks>
+        public static bool AnimateMotionPhotos
+        {
+            get => Preferences.Default.Get(AnimateMotionPhotosKey, false);
+            set => Preferences.Default.Set(AnimateMotionPhotosKey, value);
         }
 
         /// <summary>Брать снимки из папок на устройстве.</summary>
