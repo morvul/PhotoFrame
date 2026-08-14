@@ -138,8 +138,6 @@ namespace PhotoFrame
 
         private void RaiseFinished() => VirtualView?.RaisePlaybackFinished();
 
-        private void RaiseFirstFrame() => VirtualView?.RaiseFirstFrameRendered();
-
         private void RaiseFailed(string reason)
         {
             FrameLog.Warn($"Видео не воспроизведено: {reason}");
@@ -220,8 +218,6 @@ namespace PhotoFrame
                     _handler.RaiseFinished();
                 }
             }
-
-            public void OnRenderedFirstFrame() => _handler.RaiseFirstFrame();
 
             public void OnPlayerError(PlaybackException? error) =>
                 _handler.RaiseFailed($"{error?.ErrorCodeName}: {error?.Message}");
