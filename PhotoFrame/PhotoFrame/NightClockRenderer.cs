@@ -54,6 +54,11 @@ namespace PhotoFrame
         /// <param name="sensorText">
         /// Показания датчиков одной строкой. Пусто — строка не рисуется.
         /// </param>
+        /// <param name="intensityPercent">
+        /// Насыщенность рисунка в процентах; 0 — в полную силу. Нужна потому, что
+        /// подсветка упирается в свой предел: на рамке это 20 из 255, около 8%, и в
+        /// темноте часы всё равно слепят. Дальше гасить приходится самой краской.
+        /// </param>
         public static Bitmap RenderBitmap(
             int widthPixels,
             int heightPixels,
@@ -61,7 +66,8 @@ namespace PhotoFrame
             string? dateText,
             string? sensorText,
             bool phaseShifted,
-            string colorHex)
+            string colorHex,
+            int intensityPercent)
         {
             Bitmap frame = Bitmap.CreateBitmap(widthPixels, heightPixels, Bitmap.Config.Argb8888!)!;
             using var canvas = new Canvas(frame);
@@ -79,11 +85,10 @@ namespace PhotoFrame
                 checkerShader.SetLocalMatrix(shaderMatrix);
             }
 
-            // Цифры рисуются в полную силу: приглушает их подсветка экрана, а сверху
-            // ещё и шахматная маска гасит каждый второй пиксель.
             using var textPaint = new AndroidPaint(PaintFlags.AntiAlias)
             {
                 TextAlign = AndroidPaint.Align.Center,
+                Alpha = ToAlpha(intensityPercent),
             };
 
             textPaint.SetShader(checkerShader);
@@ -195,6 +200,25 @@ namespace PhotoFrame
 
         /// <summary>Чем разделены значки датчиков в строке, собранной страницей.</summary>
         private const string BadgeSeparator = "   ";
+
+        /// <summary>
+        /// Проценты насыщенности в прозрачность краски.
+        /// </summary>
+        /// <remarks>
+        /// Ниже примерно 9% цифры на шахматной маске перестают читаться совсем, поэтому
+        /// у прозрачности есть нижний предел. Яркость экрана в глазах убывает примерно
+        /// как квадрат значения пикселя, так что даже такой предел заметно темнее
+        /// полной силы.
+        /// </remarks>
+        private static int ToAlpha(int intensityPercent)
+        {
+            if (intensityPercent <= 0)
+            {
+                return 255;
+            }
+
+            return System.Math.Clamp(intensityPercent * 255 / 100, 24, 255);
+        }
 
         /// <summary>Подбирает размер шрифта так, чтобы строка заняла нужную ширину.</summary>
         private static float FitTextSize(AndroidPaint paint, string text, float targetWidth)

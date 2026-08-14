@@ -381,8 +381,8 @@
 
                     <Grid ColumnDefinitions="*,220" ColumnSpacing="12">
                         <VerticalStackLayout Grid.Column="0">
-                            <Label Text="Яркость экрана ночью" TextColor="White" FontSize="16" />
-                            <Label Text="Подсветка приглушается, пока показаны ночные часы"
+                            <Label Text="Яркость ночью" TextColor="White" FontSize="16" />
+                            <Label Text="Приглушает и подсветку, и сами цифры: подсветка ниже своего предела не опускается"
                                    TextColor="Gray" FontSize="13" />
                         </VerticalStackLayout>
                         <Picker Grid.Column="1" x:Name="NightBrightnessPicker"
