@@ -43,11 +43,27 @@ namespace PhotoFrame
         /// </returns>
         public static int? ChooseBestCorner(string photoPath)
         {
-            using Bitmap? photo = DecodeScaled(photoPath);
+            Bitmap? photo = DecodeScaled(photoPath);
             if (photo is null)
             {
                 return null;
             }
+
+            try
+            {
+                return ChooseBestCorner(photo);
+            }
+            finally
+            {
+                // Recycle освобождает пиксели сразу; одного Dispose мало — на Android 8
+                // они живут в native-куче до сборки мусора.
+                photo.Recycle();
+                photo.Dispose();
+            }
+        }
+
+        private static int? ChooseBestCorner(Bitmap photo)
+        {
 
             int width = photo.Width;
             int height = photo.Height;

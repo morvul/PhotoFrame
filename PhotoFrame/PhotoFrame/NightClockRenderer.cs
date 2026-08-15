@@ -54,6 +54,11 @@ namespace PhotoFrame
         /// <param name="sensorText">
         /// Показания датчиков одной строкой. Пусто — строка не рисуется.
         /// </param>
+        /// <param name="reusableFrame">
+        /// Кадр прошлой минуты того же слоя: если он подходит по размеру, рисуем прямо
+        /// в нём. Каждая минута — это 1280x800x4 байта, и на устройстве с гигабайтом
+        /// памяти выделять их заново всю ночь ни к чему.
+        /// </param>
         /// <param name="intensityPercent">
         /// Насыщенность рисунка в процентах; 0 — в полную силу. Нужна потому, что
         /// подсветка упирается в свой предел: на рамке это 20 из 255, около 8%, и в
@@ -67,9 +72,16 @@ namespace PhotoFrame
             string? sensorText,
             bool phaseShifted,
             string colorHex,
-            int intensityPercent)
+            int intensityPercent,
+            Bitmap? reusableFrame = null)
         {
-            Bitmap frame = Bitmap.CreateBitmap(widthPixels, heightPixels, Bitmap.Config.Argb8888!)!;
+            // Пригодный кадр переиспользуем: фон всё равно заливается чёрным целиком,
+            // так что от прошлой минуты ничего не просвечивает.
+            Bitmap frame = reusableFrame is { IsRecycled: false }
+                           && reusableFrame.Width == widthPixels
+                           && reusableFrame.Height == heightPixels
+                ? reusableFrame
+                : Bitmap.CreateBitmap(widthPixels, heightPixels, Bitmap.Config.Argb8888!)!;
             using var canvas = new Canvas(frame);
             canvas.DrawColor(AndroidColor.Black);
 

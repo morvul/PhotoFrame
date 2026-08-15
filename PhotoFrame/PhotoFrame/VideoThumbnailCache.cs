@@ -44,15 +44,26 @@ namespace PhotoFrame
                     return posterPath;
                 }
 
-                using Bitmap? frame = ExtractFrame(videoPath);
+                Bitmap? frame = ExtractFrame(videoPath);
                 if (frame is null)
                 {
                     return null;
                 }
 
-                using var posterStream = File.Create(posterPath);
-                frame.Compress(Bitmap.CompressFormat.Jpeg!, 85, posterStream);
-                return posterPath;
+                try
+                {
+                    using var posterStream = File.Create(posterPath);
+                    frame.Compress(Bitmap.CompressFormat.Jpeg!, 85, posterStream);
+                    return posterPath;
+                }
+                finally
+                {
+                    // Recycle, а не только Dispose: на Android 8 пиксели кадра лежат
+                    // в native-куче и освобождаются лишь когда до объекта доберётся
+                    // сборщик мусора. На рамке с гигабайтом памяти это слишком поздно.
+                    frame.Recycle();
+                    frame.Dispose();
+                }
             }
             catch (Exception thumbnailFailure) when (
                 thumbnailFailure is IOException or UnauthorizedAccessException

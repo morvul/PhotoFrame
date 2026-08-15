@@ -137,6 +137,9 @@ namespace PhotoFrame
         /// <summary>Показанный кадр лежит в верхнем слое.</summary>
         private bool _nightFrameInFrontLayer;
 
+        /// <summary>Сколько кадров ночных часов отрисовано за время работы.</summary>
+        private int _nightFramesRendered;
+
         /// <summary>Растёт на каждом кадре: отбрасывает анализ устаревшего снимка.</summary>
         private int _photoGeneration;
 
@@ -245,7 +248,21 @@ namespace PhotoFrame
             // Разовая запись в журнал: какие форматы устройство вообще умеет
             // декодировать. Нужна, чтобы решать про HEVC и VP9 по данным.
             CodecProbe.LogVideoDecoders();
+
+            // Раз в минуту — строка о состоянии рамки в файл. Системный журнал
+            // перезапуск не переживает, а зависает рамка по ночам.
+            FrameHeartbeat.Start(ReadHeartbeatState);
         }
+
+        /// <summary>Состояние рамки для строки журнала.</summary>
+        private HeartbeatState ReadHeartbeatState() => new(
+            IsNightMode: _isNightModeActive == true,
+            PhotoNumber: _currentPhotoIndex + 1,
+            PhotoCount: _localPhotoPaths.Count,
+            NightFramesRendered: _nightFramesRendered,
+            PlayingClip: _currentVideoPath is null
+                ? null
+                : Path.GetFileName(_currentVideoPath));
 
         /// <summary>
         /// Собирает текст с обводкой: восемь чёрных копий со смещением и одна основная сверху.
@@ -681,11 +698,19 @@ namespace PhotoFrame
 
                 int intensityPercent = FrameSettings.NightClockIntensityPercent;
 
+                // Рисуем в кадр незанятого слоя: он уже отцеплен от своего ImageView,
+                // и переиспользовать его безопасно. Так за ночь не выделяется по четыре
+                // мегабайта в минуту.
+                Android.Graphics.Bitmap? reusableFrame =
+                    _nightFrameInFrontLayer ? _backNightFrame : _frontNightFrame;
+
                 Android.Graphics.Bitmap renderedFrame = await Task.Run(
                     () => NightClockRenderer.RenderBitmap(
                         widthPixels, heightPixels, formattedTime, formattedDate, sensorText,
-                        phaseShifted, colorHex, intensityPercent))
+                        phaseShifted, colorHex, intensityPercent, reusableFrame))
                     .ConfigureAwait(true);
+
+                _nightFramesRendered++;
 
                 ShowNightClockFrame(renderedFrame);
             }
@@ -721,23 +746,29 @@ namespace PhotoFrame
             {
                 // Обработчик ещё не создан — кадр покажется на следующей минуте,
                 // а пока видны резервные метки.
-                renderedFrame.Dispose();
+                if (!ReferenceEquals(renderedFrame, _frontNightFrame)
+                    && !ReferenceEquals(renderedFrame, _backNightFrame))
+                {
+                    ReleaseFrame(renderedFrame);
+                }
+
                 _lastRenderedNightMinute = null;
                 return;
             }
 
             if (intoFrontLayer)
             {
-                _frontNightFrame?.Dispose();
+                ReleaseFrame(_frontNightFrame, renderedFrame);
                 _frontNightFrame = renderedFrame;
             }
             else
             {
-                _backNightFrame?.Dispose();
+                ReleaseFrame(_backNightFrame, renderedFrame);
                 _backNightFrame = renderedFrame;
             }
 
-            ClearLayer(previousLayer, clearingFrontLayer: !intoFrontLayer);
+            // Прежний слой только отцепляем: его кадр пригодится через минуту.
+            DetachLayer(previousLayer);
             _nightFrameInFrontLayer = intoFrontLayer;
         }
 
@@ -752,30 +783,46 @@ namespace PhotoFrame
             return true;
         }
 
-        private void ClearLayer(Image layer, bool clearingFrontLayer)
+        /// <summary>Отцепляет кадр от слоя, не трогая сам кадр.</summary>
+        private static void DetachLayer(Image layer)
         {
             if (layer.Handler?.PlatformView is Android.Widget.ImageView imageView)
             {
                 imageView.SetImageBitmap(null);
             }
-
-            if (clearingFrontLayer)
-            {
-                _frontNightFrame?.Dispose();
-                _frontNightFrame = null;
-            }
-            else
-            {
-                _backNightFrame?.Dispose();
-                _backNightFrame = null;
-            }
         }
 
-        /// <summary>Убирает кадр ночных часов и освобождает память под ним.</summary>
+        /// <summary>
+        /// Освобождает кадр, если он больше не нужен.
+        /// </summary>
+        /// <remarks>
+        /// Recycle, а не только Dispose: пиксели живут в native-куче, и без него они
+        /// ждут сборщика мусора — на устройстве с гигабайтом памяти это и есть та самая
+        /// утечка по четыре мегабайта в минуту.
+        /// </remarks>
+        private static void ReleaseFrame(
+            Android.Graphics.Bitmap? frame, Android.Graphics.Bitmap? keepIfSame = null)
+        {
+            if (frame is null || ReferenceEquals(frame, keepIfSame))
+            {
+                return;
+            }
+
+            frame.Recycle();
+            frame.Dispose();
+        }
+
+        /// <summary>Убирает ночные часы с экрана и освобождает оба кадра.</summary>
         private void ReleaseNightClockFrame()
         {
-            ClearLayer(NightClockFrontImage, clearingFrontLayer: true);
-            ClearLayer(NightClockBackImage, clearingFrontLayer: false);
+            DetachLayer(NightClockFrontImage);
+            DetachLayer(NightClockBackImage);
+
+            ReleaseFrame(_frontNightFrame);
+            ReleaseFrame(_backNightFrame);
+
+            _frontNightFrame = null;
+            _backNightFrame = null;
             _nightFrameInFrontLayer = false;
         }
 
