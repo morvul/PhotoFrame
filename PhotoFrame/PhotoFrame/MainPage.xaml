@@ -16,11 +16,12 @@
                VerticalOptions="Fill" />
 
         <!--
-            Проигрыватель видео. Показывается только на время воспроизведения, поверх
-            заставки, которую в это время держит SlideshowImage.
+            Проигрыватель виден всегда, а показывает ли он что-нибудь — решают его слои:
+            пустой он прозрачен, кадры проявляются и гаснут перетеканием. Скрывать его
+            через IsVisible нельзя: невидимый вид не рисует, и первого кадра не дождаться.
         -->
         <local:VideoPlayerView x:Name="VideoPlayer"
-                               IsVisible="False"
+                               InputTransparent="True"
                                HorizontalOptions="Fill"
                                VerticalOptions="Fill" />
 

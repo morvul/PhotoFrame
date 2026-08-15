@@ -1583,7 +1583,6 @@ namespace PhotoFrame
             VideoPlayer.IsLooping = false;
             VideoPlayer.IsMuted = true;
             VideoPlayer.SourcePath = clipPath;
-            VideoPlayer.IsVisible = true;
             VideoPlayer.Play();
         }
 
@@ -1688,12 +1687,6 @@ namespace PhotoFrame
             // Для кадра альбома путь ведёт к догруженному клипу, а не к самому слайду:
             // слайд — это заставка.
             VideoPlayer.SourcePath = _currentVideoPath;
-
-            // Проигрыватель показывается сразу: пока клип готовится, он ничего не рисует,
-            // и на экране остаётся снимок — заслонка PlayerView прозрачная. Скрытый же
-            // проигрыватель не рисует вовсе, поэтому и «показать по первому кадру»
-            // не работает: кадра не будет, пока его не покажешь.
-            VideoPlayer.IsVisible = true;
             VideoPlayer.Play();
 
             _isVideoPlaying = true;
@@ -1801,14 +1794,15 @@ namespace PhotoFrame
 
         private void StopVideoPlayback()
         {
-            if (!_isVideoPlaying && VideoPlayer.SourcePath is null)
+            if (!_isVideoPlaying && VideoPlayer.SourcePath is null && !_isMotionPlayback)
             {
                 return;
             }
 
+            // Stop сам гасит видео перетеканием, открывая снимок под ним: раньше кадр
+            // исчезал разом и на переходе к снимку била чёрная вспышка.
             VideoPlayer.Stop();
             VideoPlayer.SourcePath = null;
-            VideoPlayer.IsVisible = false;
             _isVideoPlaying = false;
 
             _isMotionPlayback = false;
