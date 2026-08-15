@@ -55,17 +55,55 @@ namespace PhotoFrame
         private static System.Timers.Timer? _timer;
         private static Func<HeartbeatState>? _readState;
 
-        private static string LogDirectory
-        {
-            get
-            {
-                string? sharedStorageRoot =
-                    Android.OS.Environment.ExternalStorageDirectory?.AbsolutePath;
+        /// <summary>Куда пишется журнал; определяется один раз при первой записи.</summary>
+        private static string? _logDirectory;
 
-                return string.IsNullOrEmpty(sharedStorageRoot)
-                    ? IoPath.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory, LogDirectoryName)
-                    : IoPath.Combine(sharedStorageRoot, "PhotoFrame", LogDirectoryName);
+        /// <summary>
+        /// Общая память, если она доступна, иначе внешний каталог приложения.
+        /// </summary>
+        /// <remarks>
+        /// В общей памяти файл виден с компьютера по USB и не требует adb — так удобнее.
+        /// Но разрешение на запись выдаётся не сразу: на свежей рамке его ещё никто
+        /// не спрашивал, и журнал молча не писался. Свой каталог приложения доступен
+        /// всегда, и лучше писать туда, чем никуда.
+        /// </remarks>
+        private static string ResolveLogDirectory()
+        {
+            if (_logDirectory is not null)
+            {
+                return _logDirectory;
             }
+
+            string? sharedStorageRoot =
+                Android.OS.Environment.ExternalStorageDirectory?.AbsolutePath;
+
+            if (!string.IsNullOrEmpty(sharedStorageRoot))
+            {
+                string sharedLogs = IoPath.Combine(sharedStorageRoot, "PhotoFrame", LogDirectoryName);
+
+                try
+                {
+                    Directory.CreateDirectory(sharedLogs);
+                    _logDirectory = sharedLogs;
+                    return sharedLogs;
+                }
+                catch (Exception sharedFailure) when (
+                    sharedFailure is IOException or UnauthorizedAccessException)
+                {
+                    FrameLog.Warn(
+                        $"Журнал пишется в каталог приложения: {sharedFailure.Message}");
+                }
+            }
+
+            string? appExternal = Android.App.Application.Context
+                .GetExternalFilesDir(null)?.AbsolutePath;
+
+            string fallback = IoPath.Combine(
+                appExternal ?? Microsoft.Maui.Storage.FileSystem.AppDataDirectory, LogDirectoryName);
+
+            Directory.CreateDirectory(fallback);
+            _logDirectory = fallback;
+            return fallback;
         }
 
         /// <summary>Начинает вести журнал. Вызывается один раз при запуске страницы.</summary>
@@ -100,11 +138,11 @@ namespace PhotoFrame
 
                 lock (WriteLock)
                 {
-                    Directory.CreateDirectory(LogDirectory);
-                    RotateIfLarge();
+                    string logDirectory = ResolveLogDirectory();
+                    RotateIfLarge(logDirectory);
 
                     // Дописываем построчно и сразу: зависшая рамка дописать уже не успеет.
-                    File.AppendAllText(IoPath.Combine(LogDirectory, LogFileName), line + "\n");
+                    File.AppendAllText(IoPath.Combine(logDirectory, LogFileName), line + "\n");
                 }
             }
             catch (Exception writeFailure) when (
@@ -168,16 +206,16 @@ namespace PhotoFrame
         }
 
         /// <summary>Переполненный файл становится предыдущим, а новый начинается пустым.</summary>
-        private static void RotateIfLarge()
+        private static void RotateIfLarge(string logDirectory)
         {
-            string logPath = IoPath.Combine(LogDirectory, LogFileName);
+            string logPath = IoPath.Combine(logDirectory, LogFileName);
 
             if (!File.Exists(logPath) || new FileInfo(logPath).Length < MaxLogBytes)
             {
                 return;
             }
 
-            string previousPath = IoPath.Combine(LogDirectory, PreviousLogFileName);
+            string previousPath = IoPath.Combine(logDirectory, PreviousLogFileName);
             File.Move(logPath, previousPath, overwrite: true);
         }
 
@@ -192,14 +230,10 @@ namespace PhotoFrame
         {
             try
             {
-                if (!Directory.Exists(LogDirectory))
-                {
-                    return;
-                }
-
+                string logDirectory = ResolveLogDirectory();
                 DateTime expiredBefore = DateTime.UtcNow.AddDays(-KeepLogDays);
 
-                foreach (string filePath in Directory.GetFiles(LogDirectory, "frame.log*"))
+                foreach (string filePath in Directory.GetFiles(logDirectory, "frame.log*"))
                 {
                     if (File.GetLastWriteTimeUtc(filePath) < expiredBefore)
                     {
