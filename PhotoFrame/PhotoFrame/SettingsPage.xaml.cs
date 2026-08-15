@@ -33,7 +33,6 @@ namespace PhotoFrame
             NightEndPicker.ItemsSource = hourChoices;
 
             NightColorPicker.ItemsSource = NightClockPalette.BuildChoiceLabels();
-            NightBrightnessPicker.ItemsSource = BuildBrightnessChoices();
             LaunchDelayPicker.ItemsSource = BuildLaunchDelayChoices();
         }
 
@@ -69,21 +68,6 @@ namespace PhotoFrame
             {
                 int delaySeconds = FrameSettings.LaunchOnBootDelayChoices[index];
                 labels[index] = delaySeconds == 0 ? "сразу" : delaySeconds + " сек";
-            }
-
-            return labels;
-        }
-
-        /// <summary>0 в списке означает «не трогать подсветку».</summary>
-        private static string[] BuildBrightnessChoices()
-        {
-            var labels = new string[FrameSettings.NightScreenBrightnessChoices.Length];
-            for (int index = 0; index < labels.Length; index++)
-            {
-                int brightnessPercent = FrameSettings.NightScreenBrightnessChoices[index];
-                labels[index] = brightnessPercent == 0
-                    ? "как в системе"
-                    : brightnessPercent + " %";
             }
 
             return labels;
@@ -175,16 +159,10 @@ namespace PhotoFrame
             NightColorPicker.SelectedIndex =
                 NightClockPalette.IndexOfHex(FrameSettings.NightClockColorHex);
 
-            NightBrightnessPicker.SelectedIndex = Array.IndexOf(
-                FrameSettings.NightScreenBrightnessChoices,
-                FrameSettings.NightScreenBrightnessPercent);
-
-            if (NightBrightnessPicker.SelectedIndex < 0)
-            {
-                // Сохранено значение не из списка — показываем ближайший разумный вариант.
-                NightBrightnessPicker.SelectedIndex = Array.IndexOf(
-                    FrameSettings.NightScreenBrightnessChoices, 10);
-            }
+            NightBrightnessSlider.Value = FrameSettings.NightScreenBrightnessPercent;
+            NightIntensitySlider.Value = FrameSettings.NightClockIntensityPercent;
+            ShowNightBrightness();
+            ShowNightIntensity();
 
             SlideshowIntervalPicker.SelectedIndex = Array.IndexOf(
                 FrameSettings.SlideshowIntervalChoices, FrameSettings.SlideshowIntervalSeconds);
@@ -217,6 +195,22 @@ namespace PhotoFrame
 
             ShowDiagnostics();
         }
+
+        private void OnNightBrightnessChanged(object? sender, ValueChangedEventArgs e) =>
+            ShowNightBrightness();
+
+        private void OnNightIntensityChanged(object? sender, ValueChangedEventArgs e) =>
+            ShowNightIntensity();
+
+        /// <summary>Ноль на шкале яркости означает «не трогать подсветку».</summary>
+        private void ShowNightBrightness()
+        {
+            int percent = (int)Math.Round(NightBrightnessSlider.Value);
+            NightBrightnessValueLabel.Text = percent == 0 ? "как в системе" : $"{percent} %";
+        }
+
+        private void ShowNightIntensity() =>
+            NightIntensityValueLabel.Text = $"{(int)Math.Round(NightIntensitySlider.Value)} %";
 
         private void OnLaunchOnBootToggled(object? sender, ToggledEventArgs e) =>
             LaunchDelayPanel.IsVisible = LaunchOnBootSwitch.IsToggled;
@@ -431,11 +425,8 @@ namespace PhotoFrame
                     NightClockPalette.Choices[NightColorPicker.SelectedIndex].Hex;
             }
 
-            if (NightBrightnessPicker.SelectedIndex >= 0)
-            {
-                FrameSettings.NightScreenBrightnessPercent =
-                    FrameSettings.NightScreenBrightnessChoices[NightBrightnessPicker.SelectedIndex];
-            }
+            FrameSettings.NightScreenBrightnessPercent = (int)Math.Round(NightBrightnessSlider.Value);
+            FrameSettings.NightClockIntensityPercent = (int)Math.Round(NightIntensitySlider.Value);
 
             FrameSettings.LaunchOnBoot = LaunchOnBootSwitch.IsToggled;
 

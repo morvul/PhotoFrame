@@ -28,6 +28,7 @@ namespace PhotoFrame
         private const string NightEndHourKey = "night_end_hour";
         private const string NightClockColorKey = "night_clock_color";
         private const string NightScreenBrightnessKey = "night_screen_brightness";
+        private const string NightClockIntensityKey = "night_clock_intensity";
         private const string ShowSensorsKey = "show_sensors";
         private const string SensorEntityIdsKey = "sensor_entity_ids";
         private const string SensorIconsKey = "sensor_icons";
@@ -53,11 +54,6 @@ namespace PhotoFrame
 
         /// <summary>Варианты времени, через которое панель управления сама скрывается.</summary>
         public static readonly int[] PanelRevealChoices = { 3, 5, 10, 20, 30, 60 };
-
-        /// <summary>
-        /// Варианты ночной яркости экрана, проценты. 0 — не трогать подсветку.
-        /// </summary>
-        public static readonly int[] NightScreenBrightnessChoices = { 0, 1, 5, 10, 20, 35, 50, 75, 100 };
 
         /// <summary>Варианты задержки запуска после включения рамки, секунды.</summary>
         public static readonly int[] LaunchOnBootDelayChoices = { 0, 10, 20, 30, 60, 120 };
@@ -214,6 +210,21 @@ namespace PhotoFrame
 
             set => Preferences.Default.Set(
                 NightClockColorKey, NightClockPalette.ResolveHex(value));
+        }
+
+        /// <summary>
+        /// Насыщенность самих цифр ночью, проценты.
+        /// </summary>
+        /// <remarks>
+        /// Отдельно от яркости экрана: подсветка упирается в предел устройства (на рамке
+        /// это 20 из 255, около 8%), и дальше гасить можно только краской. Разделение
+        /// позволяет свести одно с другим — приглушить подсветку, а цифры сделать совсем
+        /// бледными, либо наоборот.
+        /// </remarks>
+        public static int NightClockIntensityPercent
+        {
+            get => Preferences.Default.Get(NightClockIntensityKey, 50);
+            set => Preferences.Default.Set(NightClockIntensityKey, Math.Clamp(value, 1, 100));
         }
 
         /// <summary>

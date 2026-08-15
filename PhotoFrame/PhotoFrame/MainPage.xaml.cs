@@ -602,11 +602,7 @@ namespace PhotoFrame
 
             // Резервные метки гаснут вместе с рисунком, только вдвое сильнее: шахматной
             // маски, которая делит яркость кадра пополам, у них нет.
-            int intensityPercent = FrameSettings.NightScreenBrightnessPercent;
-            double intensity = intensityPercent <= 0
-                ? 1.0
-                : Math.Clamp(intensityPercent / 100d, 0.09, 1.0);
-
+            double intensity = Math.Clamp(FrameSettings.NightClockIntensityPercent / 100d, 0.01, 1.0);
             NightFallbackClock.Opacity = intensity / 2;
         }
 
@@ -683,9 +679,7 @@ namespace PhotoFrame
                 // Датчики показываются и ночью, но только если их вообще просили показывать.
                 string? sensorText = FrameSettings.ShowSensors ? _sensorLineText : null;
 
-                // Насыщенность рисунка идёт от той же настройки, что и подсветка:
-                // подсветка упирается в свой предел, а краска может гасить и дальше.
-                int intensityPercent = FrameSettings.NightScreenBrightnessPercent;
+                int intensityPercent = FrameSettings.NightClockIntensityPercent;
 
                 Android.Graphics.Bitmap renderedFrame = await Task.Run(
                     () => NightClockRenderer.RenderBitmap(
