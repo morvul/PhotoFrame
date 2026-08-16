@@ -1551,8 +1551,8 @@ namespace PhotoFrame
                 }
             });
 
-            string? videoPath = await AlbumVideoCache
-                .TryGetVideoAsync(posterPath, downloadProgress).ConfigureAwait(true);
+            string? videoPath = await SlideClips
+                .TryGetAsync(posterPath, downloadProgress).ConfigureAwait(true);
 
             if (photoGeneration != _photoGeneration)
             {
@@ -1564,7 +1564,7 @@ namespace PhotoFrame
                 // Заставка остаётся на экране, но молчать не стоит: иначе кадр выглядит
                 // обычным снимком, который почему-то помечен как видео.
                 AlbumVideoBadge.IsVisible = false;
-                ShowToast("Видео из альбома не загрузилось");
+                ShowToast("Видео не загрузилось");
                 return;
             }
 
@@ -1658,9 +1658,16 @@ namespace PhotoFrame
         /// <summary>Отметка «за этим кадром видео» с его длительностью.</summary>
         private void ShowAlbumVideoBadge(int durationMilliseconds, bool isReady)
         {
+            // Длительность известна не всегда: в выдаче Immich её у части объектов
+            // просто нет. Показывать «0:00» в таком случае хуже, чем не показывать
+            // ничего, — отметка нужна, чтобы кадр не выглядел обычным снимком.
+            string clipTime = durationMilliseconds > 0
+                ? "  " + ClipTimeFormatter.Describe(durationMilliseconds)
+                : string.Empty;
+
             AlbumVideoBadgeLabel.Text = isReady
-                ? $"▶  {ClipTimeFormatter.Describe(durationMilliseconds)}"
-                : $"▶  {ClipTimeFormatter.Describe(durationMilliseconds)}  ·  загрузка…";
+                ? $"▶{clipTime}"
+                : $"▶{clipTime}  ·  загрузка…";
 
             AlbumVideoProgressBar.Progress = 0;
             AlbumVideoProgressBar.IsVisible = !isReady;
