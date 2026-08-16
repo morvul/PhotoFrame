@@ -323,6 +323,7 @@ namespace PhotoFrame
 
             StorageLabel.Text = DescribeFreeSpace();
             CacheSizeLabel.Text = DescribePhotoCacheSize();
+            ShowTrashSize();
             VersionLabel.Text = $"Версия {AppInfo.Current.VersionString} ({AppInfo.Current.BuildString})";
         }
 
@@ -357,6 +358,121 @@ namespace PhotoFrame
                 // Справочная строка не должна ронять экран настроек.
                 return "Свободное место: неизвестно";
             }
+        }
+
+        /// <summary>
+        /// Сколько файлов лежит в корзине рамки и сколько они занимают.
+        /// </summary>
+        /// <remarks>
+        /// Кадры Immich сюда не попадают: у них хозяин — сервер, и убранный снимок уходит
+        /// в корзину самого Immich. Здесь оказываются файлы из папок на устройстве
+        /// (они действительно переехали) и кадры общего альбома Google.
+        /// </remarks>
+        private void ShowTrashSize()
+        {
+            (int fileCount, long totalBytes) = MeasureTrash();
+
+            EmptyTrashButton.IsVisible = fileCount > 0;
+
+            TrashLabel.Text = fileCount == 0
+                ? "Корзина рамки: пуста"
+                : string.Format(
+                    CultureInfo.CurrentCulture,
+                    "Корзина рамки: файлов {0}, {1:F0} МБ",
+                    fileCount,
+                    totalBytes / 1024d / 1024d);
+        }
+
+        private static (int FileCount, long TotalBytes) MeasureTrash()
+        {
+            string trashDirectory = MediaTrash.RootDirectory;
+            if (!Directory.Exists(trashDirectory))
+            {
+                return (0, 0);
+            }
+
+            int fileCount = 0;
+            long totalBytes = 0;
+
+            try
+            {
+                // Вместе с вложенными: у альбома и Immich там свои подкаталоги.
+                foreach (string filePath in Directory.EnumerateFiles(
+                    trashDirectory, "*", SearchOption.AllDirectories))
+                {
+                    fileCount++;
+                    totalBytes += new FileInfo(filePath).Length;
+                }
+            }
+            catch (Exception sizeQueryFailure) when (
+                sizeQueryFailure is IOException or UnauthorizedAccessException)
+            {
+                // Посчитали сколько успели: цифра приблизительная, но лучше, чем ничего.
+            }
+
+            return (fileCount, totalBytes);
+        }
+
+        /// <summary>
+        /// Очищает корзину рамки — насовсем, поэтому со спросом.
+        /// </summary>
+        private async void OnEmptyTrashClicked(object? sender, EventArgs e)
+        {
+            (int fileCount, _) = MeasureTrash();
+            if (fileCount == 0)
+            {
+                return;
+            }
+
+            bool confirmed = await DisplayAlert(
+                "Очистить корзину?",
+                $"Файлов: {fileCount}. Они будут удалены с рамки насовсем — "
+                + "снимки из папок на устройстве восстановить будет неоткуда.",
+                "Удалить",
+                "Отмена");
+
+            if (!confirmed)
+            {
+                return;
+            }
+
+            int deletedCount = EmptyTrash();
+            ShowTrashSize();
+
+            TrashLabel.Text = deletedCount == fileCount
+                ? $"Корзина рамки: удалено {deletedCount}"
+                : $"Корзина рамки: удалено {deletedCount} из {fileCount}";
+        }
+
+        private static int EmptyTrash()
+        {
+            string trashDirectory = MediaTrash.RootDirectory;
+            int deletedCount = 0;
+
+            try
+            {
+                foreach (string filePath in Directory.EnumerateFiles(
+                    trashDirectory, "*", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        File.Delete(filePath);
+                        deletedCount++;
+                    }
+                    catch (Exception deleteFailure) when (
+                        deleteFailure is IOException or UnauthorizedAccessException)
+                    {
+                        // Один упрямый файл не должен срывать очистку остальных.
+                    }
+                }
+            }
+            catch (Exception walkFailure) when (
+                walkFailure is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+            {
+                // Ниже вернём то, что успели удалить.
+            }
+
+            return deletedCount;
         }
 
         /// <summary>

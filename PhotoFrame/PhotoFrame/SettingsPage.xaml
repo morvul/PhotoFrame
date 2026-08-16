@@ -565,6 +565,26 @@
                     <Label x:Name="LastSyncLabel" TextColor="LightGray" FontSize="14" />
                     <Label x:Name="StorageLabel" TextColor="LightGray" FontSize="14" />
                     <Label x:Name="CacheSizeLabel" TextColor="LightGray" FontSize="14" />
+
+                    <!--
+                        Корзину никто не разбирает: рамка стоит на полке, и файлы в ней
+                        копятся годами. Счётчик показывает, сколько там накопилось, а
+                        кнопка позволяет освободить место, не подключая рамку к компьютеру.
+                    -->
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Margin="0,4,0,0">
+                        <Label Grid.Column="0" x:Name="TrashLabel"
+                               TextColor="LightGray" FontSize="14" VerticalOptions="Center" />
+
+                        <Button Grid.Column="1" x:Name="EmptyTrashButton"
+                                Text="Очистить"
+                                Clicked="OnEmptyTrashClicked"
+                                BackgroundColor="#333333"
+                                TextColor="White"
+                                FontSize="14"
+                                Padding="16,8"
+                                CornerRadius="8" />
+                    </Grid>
+
                     <Label x:Name="VersionLabel" TextColor="Gray" FontSize="13" />
                 </VerticalStackLayout>
 

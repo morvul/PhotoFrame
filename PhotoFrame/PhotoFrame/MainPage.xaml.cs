@@ -1058,6 +1058,17 @@ namespace PhotoFrame
             // Проигрыватель держит файл открытым, и переименование под ним не пройдёт.
             StopVideoPlayback();
 
+            // У Immich хозяин снимка — сервер, и убирать кадр надо там; на рамке лежит
+            // лишь превью. Ссылку на общий альбом Google так не тронешь: там правит
+            // только владелец альбома, поэтому для него всё остаётся по-прежнему.
+            ImmichSlideInfo? immichSlide = ImmichSidecar.Find(mediaPath);
+            if (immichSlide is not null)
+            {
+                await RemoveImmichPhotoAsync(mediaPath, immichSlide.AssetId).ConfigureAwait(true);
+                RemoveCurrentPhotoFromShow();
+                return;
+            }
+
             try
             {
                 await MediaTrash.MoveToTrashAsync(mediaPath).ConfigureAwait(true);
@@ -1070,34 +1081,29 @@ namespace PhotoFrame
                 return;
             }
 
-            // Запись на сервере осталась, поэтому кадр надо ещё и внести в список убранных,
+            // Ссылка в альбоме осталась, поэтому кадр надо ещё и внести в список убранных,
             // иначе следующая синхронизация скачает его заново.
-            if (MediaTrash.IsDownloadedPhoto(mediaPath))
+            if (MediaTrash.IsAlbumPhoto(mediaPath))
             {
                 FrameSettings.AddTrashedAlbumFileName(Path.GetFileName(mediaPath));
-            }
-
-            // У Immich есть своя корзина, и убрать кадр только на рамке мало: на телефоне
-            // и в браузере снимок остался бы на месте. Ссылку на общий альбом Google так
-            // не тронешь — там правит только владелец альбома.
-            ImmichSlideInfo? immichSlide = ImmichSidecar.Find(mediaPath);
-            if (immichSlide is not null)
-            {
-                _ = TrashOnImmichServerAsync(immichSlide.AssetId);
             }
 
             RemoveCurrentPhotoFromShow();
         }
 
         /// <summary>
-        /// Убирает кадр и в корзину самого Immich.
+        /// Убирает кадр Immich: в корзину сервера, а из кэша рамки — совсем.
         /// </summary>
         /// <remarks>
-        /// Не дожидаясь ответа: кадр с рамки уже убран, и держать ради сетевого запроса
-        /// застывшую панель незачем. Сообщаем только об отказе — обычно это ключ доступа,
-        /// созданный без права на удаление.
+        /// Копию в корзине рамки не держим и в список убранных кадр не вносим: снимок
+        /// лежит в корзине Immich, откуда его и восстанавливают, а восстановленный
+        /// объект сервер снова отдаёт в выдаче — и кадр возвращается на рамку сам собой,
+        /// при очередной синхронизации. Список убранных этому только мешал бы.
+        ///
+        /// Список нужен лишь когда сервер удалить отказался: тогда кадр остаётся на
+        /// сервере, и без записи он приезжал бы обратно после каждой проверки.
         /// </remarks>
-        private async Task TrashOnImmichServerAsync(string assetId)
+        private async Task RemoveImmichPhotoAsync(string mediaPath, string assetId)
         {
             ImmichPhotoSource immichSource =
                 IPlatformApplication.Current?.Services.GetService<ImmichPhotoSource>()
@@ -1107,10 +1113,26 @@ namespace PhotoFrame
                 .TryTrashOnServerAsync(assetId)
                 .ConfigureAwait(true);
 
-            if (failureMessage is not null)
+            if (failureMessage is null)
             {
-                ShowToast($"С рамки убрано, но в Immich осталось: {failureMessage}");
+                ImmichPhotoSource.RemoveFromCache(mediaPath);
+                ShowToast("Убрано в корзину Immich — вернётся, если восстановить там");
+                return;
             }
+
+            // Сервер отказал: ведём себя как с кадром альбома — копия в корзине рамки
+            // и запись в списке убранных, чтобы кадр не приехал заново.
+            try
+            {
+                await MediaTrash.MoveToTrashAsync(mediaPath).ConfigureAwait(true);
+            }
+            catch (PhotoSourceException trashFailure)
+            {
+                FrameLog.Warn($"Кадр Immich не убран в корзину рамки: {trashFailure.Message}");
+            }
+
+            FrameSettings.AddTrashedAlbumFileName(Path.GetFileName(mediaPath));
+            ShowToast($"С рамки убрано, но в Immich осталось: {failureMessage}");
         }
 
         /// <summary>

@@ -466,6 +466,13 @@ namespace PhotoFrame
         /// <summary>
         /// Убирает из набора снимки, отправленные в корзину рамки, и возвращает их число.
         /// </summary>
+        /// <remarks>
+        /// Обычно список пуст: убранный кадр уходит в корзину самого Immich, а такие
+        /// объекты сервер в выдачу не включает — и восстановленный в Immich снимок
+        /// возвращается на рамку сам. Список нужен лишь на случай, когда сервер удалить
+        /// отказался (ключ без права на удаление): иначе кадр приезжал бы снова
+        /// после каждой синхронизации.
+        /// </remarks>
         private static int RemoveTrashedAssets(List<ImmichAsset> assets)
         {
             string[] trashedFileNames = FrameSettings.TrashedAlbumFileNames;
@@ -490,6 +497,23 @@ namespace PhotoFrame
         {
             byte[] idHash = SHA256.HashData(Encoding.UTF8.GetBytes(assetId));
             return string.Concat(Convert.ToHexString(idHash).AsSpan(0, 20), ".jpg");
+        }
+
+        /// <summary>
+        /// Убирает кадр из кэша рамки вместе с его клипом.
+        /// </summary>
+        /// <remarks>
+        /// Именно удаление, а не перенос в корзину рамки: в кэше лежит превью, а сам
+        /// снимок остался на сервере — и в его корзине. Хранить на рамке ещё и копию
+        /// превью незачем, а главное, вернуть кадр это не поможет: восстанавливают его
+        /// в Immich, после чего он приезжает сюда сам при очередной синхронизации.
+        /// </remarks>
+        public static void RemoveFromCache(string posterPath)
+        {
+            TryDeleteFile(posterPath);
+
+            // Клип живого фото или видео лежит в общем каталоге под тем же именем.
+            ClipStorage.TryDelete(ClipStorage.BuildClipPath(posterPath));
         }
 
         /// <summary>True, если набор совпадает с уже скачанным и файлы на месте.</summary>
