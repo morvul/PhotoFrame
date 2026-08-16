@@ -93,26 +93,7 @@
                                     VerticalOptions="Center" />
                         </Grid>
 
-                        <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
-                            <VerticalStackLayout Grid.Column="0">
-                                <Label Text="Скачивать видео" TextColor="White" FontSize="16" />
-                                <Label Text="Из альбома и из Immich. Видео весят куда больше снимков; выключено — они не показываются"
-                                       TextColor="Gray" FontSize="13" />
-                            </VerticalStackLayout>
-                            <Switch Grid.Column="1" x:Name="AlbumVideosSwitch"
-                                    OnColor="#4FC3F7" VerticalOptions="Center" />
-                        </Grid>
-
-                        <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
-                            <VerticalStackLayout Grid.Column="0">
-                                <Label Text="Оживлять живые фото" TextColor="White" FontSize="16" />
-                                <Label Text="Из альбома и из Immich (снятые на iPhone). Клип играется один раз, дальше кадр остаётся снимком"
-                                       TextColor="Gray" FontSize="13" />
-                            </VerticalStackLayout>
-                            <Switch Grid.Column="1" x:Name="MotionPhotosSwitch"
-                                    OnColor="#4FC3F7" VerticalOptions="Center" />
-                        </Grid>
-                    </VerticalStackLayout>
+</VerticalStackLayout>
 
                     <Grid ColumnDefinitions="*,Auto">
                         <Label Grid.Column="0" Text="Immich (свой сервер)"
@@ -210,6 +191,35 @@
                                     OnColor="#4FC3F7" VerticalOptions="Center" />
                         </Grid>
                     </VerticalStackLayout>
+
+                    <!--
+                        Общее для сетевых источников. Раньше эти два переключателя стояли
+                        внутри настроек альбома Google, но теперь распространяются и на
+                        Immich: при выключенном альбоме панель скрыта, и добраться до них
+                        было нельзя вовсе.
+                    -->
+                    <Label Text="Видео и живые фото — из альбома и из Immich"
+                           TextColor="Gray" FontSize="13" Margin="0,10,0,0" />
+
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                        <VerticalStackLayout Grid.Column="0">
+                            <Label Text="Скачивать видео" TextColor="White" FontSize="16" />
+                            <Label Text="Из альбома и из Immich. Видео весят куда больше снимков; выключено — они не показываются"
+                                   TextColor="Gray" FontSize="13" />
+                        </VerticalStackLayout>
+                        <Switch Grid.Column="1" x:Name="AlbumVideosSwitch"
+                                OnColor="#4FC3F7" VerticalOptions="Center" />
+                    </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                        <VerticalStackLayout Grid.Column="0">
+                            <Label Text="Оживлять живые фото" TextColor="White" FontSize="16" />
+                            <Label Text="Из альбома и из Immich (снятые на iPhone). Клип играется один раз, дальше кадр остаётся снимком"
+                                   TextColor="Gray" FontSize="13" />
+                        </VerticalStackLayout>
+                        <Switch Grid.Column="1" x:Name="MotionPhotosSwitch"
+                                OnColor="#4FC3F7" VerticalOptions="Center" />
+                    </Grid>
                 </VerticalStackLayout>
 
                 <!-- ================= Слайд-шоу ================= -->

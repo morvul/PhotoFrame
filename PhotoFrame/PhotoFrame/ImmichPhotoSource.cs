@@ -105,6 +105,51 @@ namespace PhotoFrame
             return ImmichCatalog.ParseAlbums(albumsJson);
         }
 
+        /// <summary>
+        /// Убирает объект в корзину сервера — ту же, что и кнопка удаления в самом Immich.
+        /// </summary>
+        /// <remarks>
+        /// force не ставится: объект уходит в корзину и хранится там положенные сервером
+        /// дни, а не пропадает безвозвратно. Кнопка на рамке нажимается мимоходом, с
+        /// дивана, и права на окончательное удаление у неё быть не должно.
+        ///
+        /// Отказ не считается ошибкой показа: кадр уже убран из слайд-шоу и внесён
+        /// в список убранных, поэтому обратно он не вернётся в любом случае. Ключ
+        /// доступа мог быть создан без права на удаление — об этом и сообщаем.
+        /// </remarks>
+        /// <returns>Текст отказа либо null, если объект убран.</returns>
+        public async Task<string?> TryTrashOnServerAsync(
+            string assetId, CancellationToken cancellationToken = default)
+        {
+            if (!FrameSettings.IsImmichConfigured || assetId.Length == 0)
+            {
+                return "Immich не настроен.";
+            }
+
+            try
+            {
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Delete, ImmichCatalog.BuildDeleteAssetsUrl(FrameSettings.ImmichServerUrl))
+                {
+                    Content = new StringContent(
+                        ImmichCatalog.BuildDeleteAssetsBody(assetId),
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+
+                await SendAsync(request, FrameSettings.ImmichApiKey, cancellationToken)
+                    .ConfigureAwait(false);
+
+                FrameLog.Info($"Объект Immich убран в корзину сервера: {assetId}");
+                return null;
+            }
+            catch (PhotoSourceException trashFailure)
+            {
+                FrameLog.Warn($"Immich не убрал объект в корзину: {trashFailure.Message}");
+                return trashFailure.Message;
+            }
+        }
+
         /// <inheritdoc />
         public async Task<AlbumSyncResult> RefreshAsync(
             bool forceRefresh,
@@ -334,6 +379,15 @@ namespace PhotoFrame
                     "Не удалось получить из Immich ни одного снимка — прежний набор сохранён.");
             }
 
+            // Сервер отдаёт превью не всегда: у только что залитого снимка оно может быть
+            // ещё не построено. Молчать об этом нельзя — иначе разница в числах спишется
+            // на предел загрузки, который тут ни при чём.
+            int failedCount = desiredFileNames.Count - availableFileNames.Count;
+            if (failedCount > 0)
+            {
+                FrameLog.Warn($"Immich: не удалось скачать кадров: {failedCount}");
+            }
+
             int removedCount = RemoveFilesOutsideLibrary(photoDirectory, availableFileNames);
             WriteManifest(photoDirectory, availableFileNames);
 
@@ -345,7 +399,11 @@ namespace PhotoFrame
                 TotalPhotoCount: availableFileNames.Count,
                 DownloadedCount: downloadedCount,
                 ReusedCount: availableFileNames.Count - downloadedCount,
-                RemovedCount: removedCount);
+                RemovedCount: removedCount,
+                AvailableCount: 0,
+                Warning: failedCount == 0
+                    ? null
+                    : $"Immich: не отдал {failedCount} кадр(ов) — возможно, превью ещё не готово.");
         }
 
         private async Task<bool> TryDownloadPhotoAsync(

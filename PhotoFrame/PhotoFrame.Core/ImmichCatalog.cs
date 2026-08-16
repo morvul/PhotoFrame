@@ -89,6 +89,20 @@ namespace PhotoFrame
         public static string BuildAlbumsUrl(string serverUrl) =>
             NormalizeServerUrl(serverUrl) + "/api/albums";
 
+        /// <summary>Удаление объектов — тот же адрес, что и у кнопки удаления в Immich.</summary>
+        public static string BuildDeleteAssetsUrl(string serverUrl) =>
+            NormalizeServerUrl(serverUrl) + "/api/assets";
+
+        /// <summary>
+        /// Тело запроса на удаление.
+        /// </summary>
+        /// <remarks>
+        /// force=false — объект уходит в корзину сервера и хранится там положенный срок,
+        /// а не пропадает безвозвратно: кнопку на рамке нажимают мимоходом.
+        /// </remarks>
+        public static string BuildDeleteAssetsBody(string assetId) =>
+            $"{{\"ids\":[\"{assetId}\"],\"force\":false}}";
+
         /// <summary>Постраничный поиск по библиотеке или по одному альбому.</summary>
         public static string BuildSearchUrl(string serverUrl) =>
             NormalizeServerUrl(serverUrl) + "/api/search/metadata";

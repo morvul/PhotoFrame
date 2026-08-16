@@ -1062,7 +1062,40 @@ namespace PhotoFrame
                 FrameSettings.AddTrashedAlbumFileName(Path.GetFileName(mediaPath));
             }
 
+            // У Immich есть своя корзина, и убрать кадр только на рамке мало: на телефоне
+            // и в браузере снимок остался бы на месте. Ссылку на общий альбом Google так
+            // не тронешь — там правит только владелец альбома.
+            ImmichSlideInfo? immichSlide = ImmichSidecar.Find(mediaPath);
+            if (immichSlide is not null)
+            {
+                _ = TrashOnImmichServerAsync(immichSlide.AssetId);
+            }
+
             RemoveCurrentPhotoFromShow();
+        }
+
+        /// <summary>
+        /// Убирает кадр и в корзину самого Immich.
+        /// </summary>
+        /// <remarks>
+        /// Не дожидаясь ответа: кадр с рамки уже убран, и держать ради сетевого запроса
+        /// застывшую панель незачем. Сообщаем только об отказе — обычно это ключ доступа,
+        /// созданный без права на удаление.
+        /// </remarks>
+        private async Task TrashOnImmichServerAsync(string assetId)
+        {
+            ImmichPhotoSource immichSource =
+                IPlatformApplication.Current?.Services.GetService<ImmichPhotoSource>()
+                ?? new ImmichPhotoSource();
+
+            string? failureMessage = await immichSource
+                .TryTrashOnServerAsync(assetId)
+                .ConfigureAwait(true);
+
+            if (failureMessage is not null)
+            {
+                ShowToast($"С рамки убрано, но в Immich осталось: {failureMessage}");
+            }
         }
 
         /// <summary>
@@ -1238,11 +1271,16 @@ namespace PhotoFrame
                 statusText = $"Обновлено: {syncResult.TotalPhotoCount} фото ({changeSummary})";
             }
 
-            // Лимит на число кадров не должен срабатывать втихую: иначе кажется,
-            // что показывается весь альбом.
+            // Кадров меньше, чем есть в источнике, — и это надо объяснить, иначе кажется,
+            // что показывается всё. Причины две, и путать их нельзя: предел задан
+            // человеком, а неудачная загрузка — нет.
             if (syncResult.AvailableCount > syncResult.TotalPhotoCount)
             {
-                statusText += $" из {syncResult.AvailableCount} в альбоме (предел загрузки)";
+                int photoLimit = FrameSettings.AlbumPhotoLimit;
+
+                statusText += photoLimit > 0 && syncResult.AvailableCount > photoLimit
+                    ? $" из {syncResult.AvailableCount} в источнике (предел загрузки)"
+                    : $" из {syncResult.AvailableCount} в источнике";
             }
 
             // Один источник мог отказать, а показывать всё равно есть что — не скрываем это.
