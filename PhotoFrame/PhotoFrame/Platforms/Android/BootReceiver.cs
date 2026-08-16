@@ -28,20 +28,26 @@ namespace PhotoFrame
     {
         public override void OnReceive(Context? context, Intent? intent)
         {
+            // Записи в журнал, а не Debug.WriteLine: в сборке Release тот вырезается,
+            // и о том, дошло ли событие вообще, судить было нечем.
+            FrameLog.Info($"Получено событие загрузки: {intent?.Action}");
+
             if (context is null || !FrameSettings.LaunchOnBoot)
             {
+                FrameLog.Info("Запуск после загрузки выключен в настройках.");
                 return;
             }
 
             try
             {
-                ScheduleLaunch(context, FrameSettings.LaunchOnBootDelaySeconds);
+                int delaySeconds = FrameSettings.LaunchOnBootDelaySeconds;
+                ScheduleLaunch(context, delaySeconds);
+                FrameLog.Info($"Запуск назначен через {delaySeconds} с.");
             }
             catch (Java.Lang.Throwable launchFailure)
             {
                 // Не удалось — рамка просто останется на лаунчере, как и раньше.
-                System.Diagnostics.Debug.WriteLine(
-                    $"Запуск после загрузки не назначен: {launchFailure.Message}");
+                FrameLog.Warn($"Запуск после загрузки не назначен: {launchFailure.Message}");
             }
         }
 
