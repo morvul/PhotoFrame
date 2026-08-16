@@ -31,12 +31,6 @@ namespace PhotoFrame.Core.Tests
                 ImmichCatalog.BuildPreviewUrl("immich.home/", "abc"));
 
         [Fact]
-        public void BuildAlbumUrl_EscapesIdentifier() =>
-            Assert.Equal(
-                "http://immich.home/api/albums/a%2Fb",
-                ImmichCatalog.BuildAlbumUrl("http://immich.home", "a/b"));
-
-        [Fact]
         public void ParseAlbums_ReadsNameAndCount()
         {
             const string albumsJson = """
@@ -54,20 +48,16 @@ namespace PhotoFrame.Core.Tests
         }
 
         [Fact]
-        public void ParseAlbumAssets_KeepsServerOrderAndMarksVideos()
+        public void ParseSearchAssets_KeepsServerOrderAndMarksVideos()
         {
-            const string albumJson = """
-                {
-                  "id":"1a",
-                  "albumName":"Отпуск",
-                  "assets":[
-                    {"id":"one","type":"IMAGE","originalFileName":"IMG_0001.HEIC"},
-                    {"id":"two","type":"VIDEO","originalFileName":"IMG_0002.MOV"}
-                  ]
-                }
+            const string searchJson = """
+                {"assets":{"items":[
+                  {"id":"one","type":"IMAGE","originalFileName":"IMG_0001.HEIC"},
+                  {"id":"two","type":"VIDEO","originalFileName":"IMG_0002.MOV"}
+                ]}}
                 """;
 
-            List<ImmichAsset> assets = ImmichCatalog.ParseAlbumAssets(albumJson);
+            List<ImmichAsset> assets = ImmichCatalog.ParseSearchAssets(searchJson, out _);
 
             Assert.Equal(2, assets.Count);
             Assert.Equal(new ImmichAsset("one", "IMG_0001.HEIC", IsVideo: false), assets[0]);
@@ -75,25 +65,26 @@ namespace PhotoFrame.Core.Tests
         }
 
         [Fact]
-        public void ParseAlbumAssets_SkipsWhatServerAlreadyTrashed()
+        public void ParseSearchAssets_SkipsWhatServerAlreadyTrashed()
         {
-            const string albumJson = """
-                {"assets":[
+            const string searchJson = """
+                {"assets":{"items":[
                   {"id":"kept","type":"IMAGE","isTrashed":false},
                   {"id":"gone","type":"IMAGE","isTrashed":true}
-                ]}
+                ]}}
                 """;
 
-            ImmichAsset onlyAsset = Assert.Single(ImmichCatalog.ParseAlbumAssets(albumJson));
+            ImmichAsset onlyAsset = Assert.Single(ImmichCatalog.ParseSearchAssets(searchJson, out _));
             Assert.Equal("kept", onlyAsset.Id);
         }
 
         [Fact]
-        public void ParseAlbumAssets_SkipsEntriesWithoutIdentifier()
+        public void ParseSearchAssets_SkipsEntriesWithoutIdentifier()
         {
-            const string albumJson = """{"assets":[{"type":"IMAGE"},{"id":"real","type":"IMAGE"}]}""";
+            const string searchJson =
+                """{"assets":{"items":[{"type":"IMAGE"},{"id":"real","type":"IMAGE"}]}}""";
 
-            Assert.Equal("real", Assert.Single(ImmichCatalog.ParseAlbumAssets(albumJson)).Id);
+            Assert.Equal("real", Assert.Single(ImmichCatalog.ParseSearchAssets(searchJson, out _)).Id);
         }
 
         [Fact]
@@ -127,13 +118,31 @@ namespace PhotoFrame.Core.Tests
             Assert.Empty(ImmichCatalog.ParseSearchAssets(body, out int nextPage));
             Assert.Equal(0, nextPage);
             Assert.Empty(ImmichCatalog.ParseAlbums(body));
-            Assert.Empty(ImmichCatalog.ParseAlbumAssets(body));
+        }
+
+        /// <summary>
+        /// Именно так ответил проверенный сервер на /api/albums/{id}: сведения об
+        /// альбоме есть, списка снимков нет — потому содержимое и берётся поиском.
+        /// </summary>
+        [Fact]
+        public void ParseSearchAssets_ReturnsNothingForAlbumInfoWithoutAssets()
+        {
+            const string albumInfoJson =
+                """{"albumName":"Camera","id":"0de6829f","albumUsers":[],"assetCount":128}""";
+
+            Assert.Empty(ImmichCatalog.ParseSearchAssets(albumInfoJson, out _));
         }
 
         [Fact]
-        public void BuildSearchRequestBody_AsksOnlyForImages() =>
+        public void BuildSearchRequestBody_WithoutAlbumSearchesWholeLibrary() =>
             Assert.Equal(
-                "{\"page\":3,\"size\":1000,\"type\":\"IMAGE\",\"withDeleted\":false}",
+                "{\"page\":3,\"size\":1000,\"withDeleted\":false}",
                 ImmichCatalog.BuildSearchRequestBody(3, 1000));
+
+        [Fact]
+        public void BuildSearchRequestBody_WithAlbumFiltersByIt() =>
+            Assert.Equal(
+                "{\"page\":1,\"size\":1000,\"withDeleted\":false,\"albumIds\":[\"0de6829f\"]}",
+                ImmichCatalog.BuildSearchRequestBody(1, 1000, "0de6829f"));
     }
 }

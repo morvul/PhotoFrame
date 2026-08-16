@@ -70,11 +70,7 @@ namespace PhotoFrame
         public static string BuildAlbumsUrl(string serverUrl) =>
             NormalizeServerUrl(serverUrl) + "/api/albums";
 
-        /// <summary>Альбом вместе с перечнем его объектов.</summary>
-        public static string BuildAlbumUrl(string serverUrl, string albumId) =>
-            NormalizeServerUrl(serverUrl) + "/api/albums/" + Uri.EscapeDataString(albumId);
-
-        /// <summary>Постраничный поиск по всей библиотеке.</summary>
+        /// <summary>Постраничный поиск по библиотеке или по одному альбому.</summary>
         public static string BuildSearchUrl(string serverUrl) =>
             NormalizeServerUrl(serverUrl) + "/api/search/metadata";
 
@@ -94,9 +90,28 @@ namespace PhotoFrame
             NormalizeServerUrl(serverUrl) + "/api/assets/" + Uri.EscapeDataString(assetId)
             + "/thumbnail?size=preview";
 
-        /// <summary>Тело запроса к постраничному поиску.</summary>
-        public static string BuildSearchRequestBody(int pageNumber, int pageSize) =>
-            $"{{\"page\":{pageNumber},\"size\":{pageSize},\"type\":\"IMAGE\",\"withDeleted\":false}}";
+        /// <summary>
+        /// Тело запроса к постраничному поиску.
+        /// </summary>
+        /// <remarks>
+        /// Содержимое альбома берётся тем же запросом с фильтром albumIds, а не через
+        /// /api/albums/{id}: проверенный сервер отдаёт оттуда одни сведения об альбоме,
+        /// без списка снимков (682 байта, поля assets нет вовсе) — даже с явным
+        /// withoutAssets=false. Через поиск ответ ещё и постраничный, так что альбом
+        /// на десять тысяч кадров не придёт одним куском.
+        ///
+        /// Тип объектов намеренно не ограничивается: видео нужно посчитать, чтобы
+        /// сказать, сколько их пропущено, а отфильтрованных сервером не увидеть.
+        /// </remarks>
+        /// <param name="albumId">Пусто — искать по всей библиотеке.</param>
+        public static string BuildSearchRequestBody(int pageNumber, int pageSize, string? albumId = null)
+        {
+            string albumFilter = string.IsNullOrEmpty(albumId)
+                ? string.Empty
+                : $",\"albumIds\":[\"{albumId}\"]";
+
+            return $"{{\"page\":{pageNumber},\"size\":{pageSize},\"withDeleted\":false{albumFilter}}}";
+        }
 
         /// <summary>Разбирает ответ /api/albums.</summary>
         public static List<ImmichAlbum> ParseAlbums(string albumsJson)
@@ -124,20 +139,6 @@ namespace PhotoFrame
             }
 
             return albums;
-        }
-
-        /// <summary>Разбирает ответ /api/albums/{id}: объекты лежат в поле assets.</summary>
-        public static List<ImmichAsset> ParseAlbumAssets(string albumJson)
-        {
-            using JsonDocument? document = TryParse(albumJson);
-
-            if (document is null
-                || !document.RootElement.TryGetProperty("assets", out JsonElement assetsElement))
-            {
-                return new List<ImmichAsset>();
-            }
-
-            return ReadAssetArray(assetsElement);
         }
 
         /// <summary>

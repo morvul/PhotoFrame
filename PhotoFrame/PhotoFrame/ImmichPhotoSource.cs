@@ -120,10 +120,8 @@ namespace PhotoFrame
             string serverUrl = FrameSettings.ImmichServerUrl;
             string apiKey = FrameSettings.ImmichApiKey;
 
-            List<ImmichAsset> assets = FrameSettings.ImmichAlbumId.Length == 0
-                ? await GetLibraryAssetsAsync(serverUrl, apiKey, cancellationToken).ConfigureAwait(false)
-                : await GetAlbumAssetsAsync(
-                    serverUrl, apiKey, FrameSettings.ImmichAlbumId, cancellationToken).ConfigureAwait(false);
+            List<ImmichAsset> assets = await GetAssetsAsync(
+                serverUrl, apiKey, FrameSettings.ImmichAlbumId, cancellationToken).ConfigureAwait(false);
 
             // Видео отбрасываются до всех подсчётов, иначе их пришлось бы объяснять
             // в каждом числе итога.
@@ -184,9 +182,12 @@ namespace PhotoFrame
                 ? null
                 : $"Immich: видео пока не показываются, пропущено {skippedVideoCount}.";
 
-        /// <summary>Все снимки библиотеки, страница за страницей.</summary>
-        private async Task<List<ImmichAsset>> GetLibraryAssetsAsync(
-            string serverUrl, string apiKey, CancellationToken cancellationToken)
+        /// <summary>
+        /// Объекты библиотеки либо одного альбома, страница за страницей.
+        /// </summary>
+        /// <param name="albumId">Пусто — вся библиотека.</param>
+        private async Task<List<ImmichAsset>> GetAssetsAsync(
+            string serverUrl, string apiKey, string albumId, CancellationToken cancellationToken)
         {
             var assets = new List<ImmichAsset>();
             string searchUrl = ImmichCatalog.BuildSearchUrl(serverUrl);
@@ -199,7 +200,7 @@ namespace PhotoFrame
                 using var request = new HttpRequestMessage(HttpMethod.Post, searchUrl)
                 {
                     Content = new StringContent(
-                        ImmichCatalog.BuildSearchRequestBody(pageNumber, SearchPageSize),
+                        ImmichCatalog.BuildSearchRequestBody(pageNumber, SearchPageSize, albumId),
                         Encoding.UTF8,
                         "application/json"),
                 };
@@ -208,20 +209,7 @@ namespace PhotoFrame
                 assets.AddRange(ImmichCatalog.ParseSearchAssets(pageJson, out pageNumber));
             }
 
-            return assets;
-        }
-
-        /// <summary>Снимки одного альбома в порядке, заданном сервером.</summary>
-        private async Task<List<ImmichAsset>> GetAlbumAssetsAsync(
-            string serverUrl, string apiKey, string albumId, CancellationToken cancellationToken)
-        {
-            string albumJson = await GetStringAsync(
-                ImmichCatalog.BuildAlbumUrl(serverUrl, albumId), apiKey, cancellationToken)
-                .ConfigureAwait(false);
-
-            List<ImmichAsset> assets = ImmichCatalog.ParseAlbumAssets(albumJson);
-
-            if (assets.Count == 0)
+            if (assets.Count == 0 && albumId.Length > 0)
             {
                 throw new PhotoSourceException(
                     $"Альбом «{FrameSettings.ImmichAlbumName}» пуст либо больше не существует. " +
