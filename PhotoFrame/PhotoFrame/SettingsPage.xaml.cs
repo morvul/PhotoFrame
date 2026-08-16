@@ -512,26 +512,38 @@ namespace PhotoFrame
         /// </summary>
         /// <remarks>
         /// Набирать сорок случайных символов пультом по экранной клавиатуре нереально,
-        /// поэтому ключ можно просто скопировать на рамку файлом по USB. Файл читается
-        /// только когда ключ ещё не задан: иначе он затирал бы то, что человек ввёл
-        /// на самом устройстве.
+        /// поэтому ключ можно просто скопировать на рамку файлом по USB.
+        ///
+        /// Файл имеет преимущество над сохранённым ключом: иначе положить рядом новый
+        /// файл было бы бесполезно — рамка продолжала бы ходить со старым ключом, а
+        /// смена ключа как раз и есть та задача, ради которой файл нужен. Ввести ключ
+        /// руками это не мешает: тогда файла попросту нет.
+        ///
+        /// Подставленный ключ ещё нужно сохранить — как и всё остальное на этом экране.
         /// </remarks>
         private void ShowImmichApiKey()
         {
             string savedApiKey = FrameSettings.ImmichApiKey;
+            string apiKeyFromFile = ImmichKeyFile.TryRead();
 
-            if (savedApiKey.Length > 0)
+            if (apiKeyFromFile.Length == 0)
             {
                 ImmichApiKeyEntry.Text = savedApiKey;
+
+                if (savedApiKey.Length == 0)
+                {
+                    ImmichStatusLabel.Text =
+                        $"Ключ можно скопировать на рамку файлом {ImmichKeyFile.FilePath}";
+                }
+
                 return;
             }
 
-            string apiKeyFromFile = ImmichKeyFile.TryRead();
             ImmichApiKeyEntry.Text = apiKeyFromFile;
 
-            ImmichStatusLabel.Text = apiKeyFromFile.Length > 0
+            ImmichStatusLabel.Text = apiKeyFromFile == savedApiKey
                 ? "Ключ взят из файла immich.key"
-                : $"Ключ можно скопировать на рамку файлом {ImmichKeyFile.FilePath}";
+                : "В файле immich.key другой ключ — подставлен, нажмите «Сохранить»";
         }
 
         /// <summary>
