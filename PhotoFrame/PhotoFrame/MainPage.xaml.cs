@@ -1055,6 +1055,10 @@ namespace PhotoFrame
                 return;
             }
 
+            FrameLog.Info(
+                $"Убираем кадр: повтор {_isMotionLooping}, видео {_isCurrentSlideVideo}, "
+                + $"кадров {_localPhotoPaths.Count}");
+
             // Проигрыватель держит файл открытым, и переименование под ним не пройдёт.
             StopVideoPlayback();
 
@@ -1196,6 +1200,7 @@ namespace PhotoFrame
             SlideshowStateStore.SaveOrder(_localPhotoPaths);
 
             ShowToast($"Убрано в корзину. Осталось {_localPhotoPaths.Count} фото");
+            FrameLog.Info($"Кадр убран, осталось {_localPhotoPaths.Count}; показ продолжается");
 
             if (_localPhotoPaths.Count == 0)
             {
@@ -1464,6 +1469,12 @@ namespace PhotoFrame
             // играть под уже следующей фотографией.
             StopVideoPlayback();
 
+            // Повтор живого фото жил ровно на своём кадре и на это время останавливал
+            // показ. Снимать его надо здесь, для любого следующего слайда: раньше это
+            // делалось только в ветке снимка, и уход с кадра видео (или его удаление)
+            // оставлял показ стоять.
+            StopMotionLoop(resumeSlideshow: _isMotionLooping);
+
             // Оператор % в C# сохраняет знак, поэтому для шага назад нужна нормализация.
             _currentPhotoIndex = ((photoIndex % photoCount) + photoCount) % photoCount;
 
@@ -1497,6 +1508,7 @@ namespace PhotoFrame
             // затянется, надпись всё равно не останется на прежнем месте.
             MoveClockToNextPosition();
 
+            _currentMotionPoster = null;
             _isCurrentSlideVideo = MediaFileTypes.IsVideo(mediaPath);
             _currentVideoPath = _isCurrentSlideVideo ? mediaPath : null;
             _currentAlbumVideoPoster = null;
@@ -1524,9 +1536,9 @@ namespace PhotoFrame
                 AlbumVideoBadge.IsVisible = false;
 
                 // Кнопка повтора живёт ровно один кадр: на следующем снимке повторять
-                // уже нечего, а включённый круг нужно снять вместе с ним.
+                // уже нечего.
                 _currentMotionPoster = slideClip is { IsMotionPhoto: true } ? mediaPath : null;
-                StopMotionLoop(resumeSlideshow: false);
+                UpdateTapRevealedOverlays();
 
                 if (slideClip is { IsMotionPhoto: false })
                 {
