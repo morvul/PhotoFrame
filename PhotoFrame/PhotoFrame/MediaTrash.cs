@@ -30,6 +30,9 @@ namespace PhotoFrame
         /// <summary>Подкаталог для кадров из общего альбома Google Photos.</summary>
         private const string AlbumSubdirectoryName = "Google Photos";
 
+        /// <summary>Подкаталог для кадров, скачанных с сервера Immich.</summary>
+        private const string ImmichSubdirectoryName = "Immich";
+
         /// <summary>Корень корзины.</summary>
         /// <remarks>
         /// Общая память недоступна в редких случаях (нет карты, не смонтировано) —
@@ -51,14 +54,31 @@ namespace PhotoFrame
         }
 
         /// <summary>True, если файл — скачанный кадр общего альбома, а не снимок из папки.</summary>
-        public static bool IsAlbumPhoto(string mediaPath)
+        public static bool IsAlbumPhoto(string mediaPath) =>
+            IsInDirectory(mediaPath, SharedAlbumPhotoSource.PhotoLibraryDirectory);
+
+        /// <summary>True, если файл скачан с сервера Immich.</summary>
+        public static bool IsImmichPhoto(string mediaPath) =>
+            IsInDirectory(mediaPath, ImmichPhotoSource.PhotoLibraryDirectory);
+
+        /// <summary>
+        /// True для кадра из любого сетевого источника.
+        /// </summary>
+        /// <remarks>
+        /// Такой кадр мало убрать в корзину: файл лежит в кэше, а запись о нём осталась
+        /// на сервере, и следующая синхронизация скачает снимок заново. Поэтому имя
+        /// файла ещё и запоминается в списке убранных.
+        /// </remarks>
+        public static bool IsDownloadedPhoto(string mediaPath) =>
+            IsAlbumPhoto(mediaPath) || IsImmichPhoto(mediaPath);
+
+        private static bool IsInDirectory(string mediaPath, string directoryPath)
         {
             string? directory = IoPath.GetDirectoryName(mediaPath);
 
             return directory is not null
                    && directory.Equals(
-                       SharedAlbumPhotoSource.PhotoLibraryDirectory.TrimEnd(
-                           IoPath.DirectorySeparatorChar),
+                       directoryPath.TrimEnd(IoPath.DirectorySeparatorChar),
                        StringComparison.OrdinalIgnoreCase);
         }
 
@@ -76,10 +96,16 @@ namespace PhotoFrame
                 throw new PhotoSourceException("Файла уже нет на месте.");
             }
 
-            bool isAlbumPhoto = IsAlbumPhoto(mediaPath);
-            string targetDirectory = isAlbumPhoto
-                ? IoPath.Combine(RootDirectory, AlbumSubdirectoryName)
-                : RootDirectory;
+            string targetDirectory = RootDirectory;
+
+            if (IsAlbumPhoto(mediaPath))
+            {
+                targetDirectory = IoPath.Combine(RootDirectory, AlbumSubdirectoryName);
+            }
+            else if (IsImmichPhoto(mediaPath))
+            {
+                targetDirectory = IoPath.Combine(RootDirectory, ImmichSubdirectoryName);
+            }
 
             await EnsureStorageWritePermissionAsync().ConfigureAwait(true);
 

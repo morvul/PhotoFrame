@@ -185,7 +185,9 @@ namespace PhotoFrame
             // новый экземпляр со своим HttpClient.
             _photoSource = IPlatformApplication.Current?.Services.GetService<CompositePhotoSource>()
                            ?? new CompositePhotoSource(
-                               new SharedAlbumPhotoSource(), new LocalFolderPhotoSource());
+                               new SharedAlbumPhotoSource(),
+                               new ImmichPhotoSource(),
+                               new LocalFolderPhotoSource());
 
             _clockTimeLabels = BuildOutlinedText(
                 ClockTimeHost, fontSize: 68, isBold: true, Colors.White, TimeOutlineWidth);
@@ -1053,9 +1055,9 @@ namespace PhotoFrame
                 return;
             }
 
-            // Ссылка в альбоме осталась, поэтому кадр надо ещё и внести в список убранных,
+            // Запись на сервере осталась, поэтому кадр надо ещё и внести в список убранных,
             // иначе следующая синхронизация скачает его заново.
-            if (MediaTrash.IsAlbumPhoto(mediaPath))
+            if (MediaTrash.IsDownloadedPhoto(mediaPath))
             {
                 FrameSettings.AddTrashedAlbumFileName(Path.GetFileName(mediaPath));
             }
@@ -1401,7 +1403,9 @@ namespace PhotoFrame
             // куда полезнее знать, что снимок пришёл из Google Photos.
             string frameLabel = MediaTrash.IsAlbumPhoto(mediaPath)
                 ? "Google Photos"
-                : MediaLabelFormatter.Describe(mediaPath);
+                : MediaTrash.IsImmichPhoto(mediaPath)
+                    ? "Immich"
+                    : MediaLabelFormatter.Describe(mediaPath);
 
             SetOutlinedText(
                 _photoCounterLabels, $"{frameLabel}  ·  {_currentPhotoIndex + 1}/{photoCount}");

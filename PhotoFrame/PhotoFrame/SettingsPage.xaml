@@ -115,6 +115,66 @@
                     </VerticalStackLayout>
 
                     <Grid ColumnDefinitions="*,Auto">
+                        <Label Grid.Column="0" Text="Immich (свой сервер)"
+                               TextColor="White" FontSize="16" VerticalOptions="Center" />
+                        <Switch Grid.Column="1" x:Name="UseImmichSwitch"
+                                Toggled="OnSourceToggled"
+                                OnColor="#4FC3F7" VerticalOptions="Center" />
+                    </Grid>
+
+                    <!-- Настройки Immich -->
+                    <VerticalStackLayout x:Name="ImmichPanel" Spacing="8" Margin="16,0,0,0">
+                        <Label Text="Адрес сервера" TextColor="White" FontSize="16" />
+                        <Label Text="Можно без http:// — например 192.168.1.10:2283"
+                               TextColor="Gray" FontSize="13" />
+                        <Entry x:Name="ImmichUrlEntry"
+                               Placeholder="http://192.168.1.10:2283"
+                               PlaceholderColor="#555555"
+                               Keyboard="Url"
+                               TextColor="White"
+                               BackgroundColor="#1E1E1E"
+                               FontSize="15"
+                               HeightRequest="52" />
+
+                        <Label Text="Ключ доступа" TextColor="White" FontSize="16" Margin="0,6,0,0" />
+                        <Label Text="Immich → Account Settings → API Keys → New API Key"
+                               TextColor="Gray" FontSize="13" />
+                        <Entry x:Name="ImmichApiKeyEntry"
+                               Placeholder="ключ доступа"
+                               PlaceholderColor="#555555"
+                               IsPassword="True"
+                               TextColor="White"
+                               BackgroundColor="#1E1E1E"
+                               FontSize="15"
+                               HeightRequest="52" />
+
+                        <Grid ColumnDefinitions="*,190" Margin="0,6,0,0">
+                            <VerticalStackLayout Grid.Column="0">
+                                <Label Text="Что показывать" TextColor="White" FontSize="16" />
+                                <Label x:Name="ImmichStatusLabel"
+                                       Text="Вся библиотека либо один альбом"
+                                       TextColor="Gray" FontSize="13"
+                                       LineBreakMode="TailTruncation" MaxLines="2" />
+                            </VerticalStackLayout>
+                            <Picker Grid.Column="1" x:Name="ImmichAlbumPicker"
+                                    TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
+                                    VerticalOptions="Center" />
+                        </Grid>
+
+                        <Button x:Name="ImmichAlbumsButton"
+                                Text="Проверить связь и получить альбомы"
+                                Clicked="OnLoadImmichAlbumsClicked"
+                                BackgroundColor="#333333"
+                                TextColor="White"
+                                Padding="18,10"
+                                CornerRadius="8"
+                                HorizontalOptions="Start" />
+
+                        <Label Text="Видео с сервера пока не показываются — только снимки."
+                               TextColor="Gray" FontSize="13" />
+                    </VerticalStackLayout>
+
+                    <Grid ColumnDefinitions="*,Auto">
                         <Label Grid.Column="0" Text="Папки на устройстве"
                                TextColor="White" FontSize="16" VerticalOptions="Center" />
                         <Switch Grid.Column="1" x:Name="UseLocalFoldersSwitch"

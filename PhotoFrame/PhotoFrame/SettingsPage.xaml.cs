@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Controls;
 
@@ -17,6 +18,15 @@ namespace PhotoFrame
         /// MainPage читает флаг в OnAppearing — так экраны не держат ссылок друг на друга.
         /// </summary>
         public static bool SyncRequestedOnReturn { get; set; }
+
+        /// <summary>Подпись первого пункта списка альбомов Immich.</summary>
+        private const string WholeLibraryChoice = "Вся библиотека";
+
+        /// <summary>
+        /// Альбомы, полученные с сервера Immich. Пусто, пока список не запрашивали:
+        /// лезть в сеть при каждом открытии настроек ни к чему, обычно правят не это.
+        /// </summary>
+        private List<ImmichAlbum> _immichAlbums = new();
 
         public SettingsPage()
         {
@@ -119,10 +129,15 @@ namespace PhotoFrame
         private void LoadCurrentSettings()
         {
             UseSharedAlbumSwitch.IsToggled = FrameSettings.UseSharedAlbum;
+            UseImmichSwitch.IsToggled = FrameSettings.UseImmich;
             UseLocalFoldersSwitch.IsToggled = FrameSettings.UseLocalFolders;
             UpdateSourcePanels();
 
             ShareUrlEntry.Text = FrameSettings.SharedAlbumUrl;
+
+            ImmichUrlEntry.Text = FrameSettings.ImmichServerUrl;
+            ImmichApiKeyEntry.Text = FrameSettings.ImmichApiKey;
+            ShowImmichAlbumChoices();
 
             AlbumLimitPicker.SelectedIndex = Array.IndexOf(
                 FrameSettings.AlbumPhotoLimitChoices, FrameSettings.AlbumPhotoLimit);
@@ -244,6 +259,7 @@ namespace PhotoFrame
         private void UpdateSourcePanels()
         {
             SharedAlbumPanel.IsVisible = UseSharedAlbumSwitch.IsToggled;
+            ImmichPanel.IsVisible = UseImmichSwitch.IsToggled;
             LocalFolderPanel.IsVisible = UseLocalFoldersSwitch.IsToggled;
         }
 
@@ -375,10 +391,122 @@ namespace PhotoFrame
                 totalBytes / 1024d / 1024d);
         }
 
+        /// <summary>
+        /// Заполняет список альбомов Immich и выделяет в нём сохранённый выбор.
+        /// </summary>
+        /// <remarks>
+        /// Пока альбомы не запрошены, в списке всё равно два пункта: вся библиотека и
+        /// уже выбранный альбом. Иначе открытие настроек без сети сбрасывало бы выбор
+        /// на «всю библиотеку» — то есть меняло бы поведение рамки молча.
+        /// </remarks>
+        private void ShowImmichAlbumChoices()
+        {
+            var choiceLabels = new List<string> { WholeLibraryChoice };
+            int selectedIndex = 0;
+
+            if (_immichAlbums.Count > 0)
+            {
+                for (int albumIndex = 0; albumIndex < _immichAlbums.Count; albumIndex++)
+                {
+                    ImmichAlbum album = _immichAlbums[albumIndex];
+                    choiceLabels.Add($"{album.Name} ({album.AssetCount})");
+
+                    if (album.Id == FrameSettings.ImmichAlbumId)
+                    {
+                        selectedIndex = albumIndex + 1;
+                    }
+                }
+            }
+            else if (FrameSettings.ImmichAlbumId.Length > 0)
+            {
+                choiceLabels.Add(FrameSettings.ImmichAlbumName);
+                selectedIndex = 1;
+            }
+
+            ImmichAlbumPicker.ItemsSource = choiceLabels;
+            ImmichAlbumPicker.SelectedIndex = selectedIndex;
+        }
+
+        /// <summary>
+        /// Спрашивает у сервера список альбомов — заодно это и проверка связи с ключом.
+        /// </summary>
+        private async void OnLoadImmichAlbumsClicked(object? sender, EventArgs e)
+        {
+            string serverUrl = ImmichUrlEntry.Text ?? string.Empty;
+            string apiKey = (ImmichApiKeyEntry.Text ?? string.Empty).Trim();
+
+            if (serverUrl.Trim().Length == 0 || apiKey.Length == 0)
+            {
+                ImmichStatusLabel.Text = "Сначала заполните адрес сервера и ключ доступа";
+                return;
+            }
+
+            ImmichAlbumsButton.IsEnabled = false;
+            ImmichStatusLabel.Text = "Соединение…";
+
+            try
+            {
+                ImmichPhotoSource immichSource =
+                    IPlatformApplication.Current?.Services.GetService<ImmichPhotoSource>()
+                    ?? new ImmichPhotoSource();
+
+                _immichAlbums = await immichSource
+                    .GetAlbumsAsync(serverUrl, apiKey)
+                    .ConfigureAwait(true);
+
+                // Адрес мог быть введён без схемы: показываем то, что реально пойдёт в запрос.
+                ImmichUrlEntry.Text = ImmichCatalog.NormalizeServerUrl(serverUrl);
+
+                ShowImmichAlbumChoices();
+
+                ImmichStatusLabel.Text = _immichAlbums.Count == 0
+                    ? "Связь есть, но альбомов нет — покажем всю библиотеку"
+                    : $"Связь есть, альбомов: {_immichAlbums.Count}";
+            }
+            catch (PhotoSourceException immichFailure)
+            {
+                ImmichStatusLabel.Text = immichFailure.Message;
+            }
+            finally
+            {
+                ImmichAlbumsButton.IsEnabled = true;
+            }
+        }
+
+        /// <summary>Переносит выбор в списке альбомов в настройки.</summary>
+        private void ApplyImmichAlbumChoice()
+        {
+            int selectedIndex = ImmichAlbumPicker.SelectedIndex;
+
+            // Первый пункт — вся библиотека, дальше идут альбомы в порядке списка.
+            if (selectedIndex <= 0)
+            {
+                FrameSettings.ImmichAlbumId = string.Empty;
+                FrameSettings.ImmichAlbumName = string.Empty;
+                return;
+            }
+
+            if (_immichAlbums.Count == 0)
+            {
+                // Список не запрашивали: единственный доступный пункт — сохранённый
+                // раньше альбом, и трогать его не нужно.
+                return;
+            }
+
+            ImmichAlbum selectedAlbum = _immichAlbums[selectedIndex - 1];
+            FrameSettings.ImmichAlbumId = selectedAlbum.Id;
+            FrameSettings.ImmichAlbumName = selectedAlbum.Name;
+        }
+
         private void ApplySettings()
         {
             FrameSettings.UseSharedAlbum = UseSharedAlbumSwitch.IsToggled;
+            FrameSettings.UseImmich = UseImmichSwitch.IsToggled;
             FrameSettings.UseLocalFolders = UseLocalFoldersSwitch.IsToggled;
+
+            FrameSettings.ImmichServerUrl = ImmichUrlEntry.Text ?? string.Empty;
+            FrameSettings.ImmichApiKey = ImmichApiKeyEntry.Text ?? string.Empty;
+            ApplyImmichAlbumChoice();
 
             FrameSettings.DownloadAlbumVideos = AlbumVideosSwitch.IsToggled;
             FrameSettings.AnimateMotionPhotos = MotionPhotosSwitch.IsToggled;

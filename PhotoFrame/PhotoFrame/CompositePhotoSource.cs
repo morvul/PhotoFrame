@@ -16,13 +16,16 @@ namespace PhotoFrame
     public class CompositePhotoSource : IPhotoSource
     {
         private readonly SharedAlbumPhotoSource _sharedAlbumSource;
+        private readonly ImmichPhotoSource _immichSource;
         private readonly LocalFolderPhotoSource _localFolderSource;
 
         public CompositePhotoSource(
             SharedAlbumPhotoSource sharedAlbumSource,
+            ImmichPhotoSource immichSource,
             LocalFolderPhotoSource localFolderSource)
         {
             _sharedAlbumSource = sharedAlbumSource;
+            _immichSource = immichSource;
             _localFolderSource = localFolderSource;
         }
 
@@ -53,6 +56,11 @@ namespace PhotoFrame
                 descriptions.Add($"Google Photos: {_sharedAlbumSource.DescribeConfiguration()}");
             }
 
+            if (FrameSettings.UseImmich)
+            {
+                descriptions.Add($"Immich: {_immichSource.DescribeConfiguration()}");
+            }
+
             if (FrameSettings.UseLocalFolders)
             {
                 descriptions.Add($"Папки: {_localFolderSource.DescribeConfiguration()}");
@@ -61,14 +69,21 @@ namespace PhotoFrame
             return descriptions.Count == 0 ? "Источники не включены" : string.Join("; ", descriptions);
         }
 
-        /// <summary>Источники в порядке показа: сначала альбом, затем локальные папки.</summary>
+        /// <summary>
+        /// Источники в порядке показа: альбом Google, затем Immich, затем локальные папки.
+        /// </summary>
         private List<IPhotoSource> EnabledSources()
         {
-            var enabledSources = new List<IPhotoSource>(2);
+            var enabledSources = new List<IPhotoSource>(3);
 
             if (FrameSettings.UseSharedAlbum)
             {
                 enabledSources.Add(_sharedAlbumSource);
+            }
+
+            if (FrameSettings.UseImmich)
+            {
+                enabledSources.Add(_immichSource);
             }
 
             if (FrameSettings.UseLocalFolders)

@@ -22,6 +22,7 @@ namespace PhotoFrame
             // Singleton: внутри SharedAlbumPhotoSource живёт настроенный HttpClient,
             // пересоздавать его на каждый показ страницы не нужно.
             builder.Services.AddSingleton<SharedAlbumPhotoSource>();
+            builder.Services.AddSingleton<ImmichPhotoSource>();
             builder.Services.AddSingleton<LocalFolderPhotoSource>();
             builder.Services.AddSingleton<CompositePhotoSource>();
             builder.Services.AddSingleton<HomeAssistantClient>();

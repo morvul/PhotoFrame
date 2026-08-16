@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.Maui.Storage;
 
 namespace PhotoFrame
@@ -19,6 +19,11 @@ namespace PhotoFrame
         private const string LocalFolderPathsKey = "local_folder_paths";
         private const string LocalFolderRecursiveKey = "local_folder_recursive";
         private const string ShareUrlKey = "share_url";
+        private const string UseImmichKey = "use_immich";
+        private const string ImmichServerUrlKey = "immich_server_url";
+        private const string ImmichApiKeyKey = "immich_api_key";
+        private const string ImmichAlbumIdKey = "immich_album_id";
+        private const string ImmichAlbumNameKey = "immich_album_name";
         private const string SlideshowIntervalKey = "slideshow_interval_seconds";
         private const string PollIntervalKey = "poll_interval_hours";
         private const string ShuffleKey = "shuffle_photos";
@@ -100,6 +105,64 @@ namespace PhotoFrame
             get => Preferences.Default.Get(AnimateMotionPhotosKey, false);
             set => Preferences.Default.Set(AnimateMotionPhotosKey, value);
         }
+
+        /// <summary>
+        /// Брать снимки с домашнего сервера Immich.
+        /// </summary>
+        /// <remarks>
+        /// По умолчанию выключено: у источника нет разумного значения по умолчанию —
+        /// без адреса сервера и ключа доступа он всё равно ничего не покажет.
+        /// </remarks>
+        public static bool UseImmich
+        {
+            get => Preferences.Default.Get(UseImmichKey, false);
+            set => Preferences.Default.Set(UseImmichKey, value);
+        }
+
+        /// <summary>Адрес сервера Immich, например http://192.168.1.10:2283.</summary>
+        public static string ImmichServerUrl
+        {
+            get => ImmichCatalog.NormalizeServerUrl(
+                Preferences.Default.Get(ImmichServerUrlKey, string.Empty));
+
+            set => Preferences.Default.Set(
+                ImmichServerUrlKey, ImmichCatalog.NormalizeServerUrl(value));
+        }
+
+        /// <summary>
+        /// Ключ доступа к Immich (Account Settings → API Keys).
+        /// </summary>
+        /// <remarks>
+        /// Хранится только на самом устройстве и в сборку не попадает: в отличие от
+        /// ссылки на общий альбом, это полноценный доступ ко всей библиотеке, и
+        /// значения по умолчанию из secrets.props у него намеренно нет.
+        /// </remarks>
+        public static string ImmichApiKey
+        {
+            get => Preferences.Default.Get(ImmichApiKeyKey, string.Empty);
+            set => Preferences.Default.Set(ImmichApiKeyKey, value?.Trim() ?? string.Empty);
+        }
+
+        /// <summary>Идентификатор выбранного альбома; пусто — вся библиотека.</summary>
+        public static string ImmichAlbumId
+        {
+            get => Preferences.Default.Get(ImmichAlbumIdKey, string.Empty);
+            set => Preferences.Default.Set(ImmichAlbumIdKey, value ?? string.Empty);
+        }
+
+        /// <summary>
+        /// Название выбранного альбома — только для показа в настройках: запрашивать
+        /// ради одной подписи весь список альбомов было бы расточительно.
+        /// </summary>
+        public static string ImmichAlbumName
+        {
+            get => Preferences.Default.Get(ImmichAlbumNameKey, string.Empty);
+            set => Preferences.Default.Set(ImmichAlbumNameKey, value ?? string.Empty);
+        }
+
+        /// <summary>True, если Immich можно опрашивать: есть и адрес, и ключ.</summary>
+        public static bool IsImmichConfigured =>
+            ImmichServerUrl.Length > 0 && ImmichApiKey.Length > 0;
 
         /// <summary>Брать снимки из папок на устройстве.</summary>
         public static bool UseLocalFolders
@@ -434,9 +497,12 @@ namespace PhotoFrame
         }
 
         /// <summary>
-        /// Имена файлов кадров альбома, убранных в корзину.
+        /// Имена файлов скачанных кадров, убранных в корзину.
         /// </summary>
         /// <remarks>
+        /// Список общий для альбома Google и для Immich: имена там и там выводятся
+        /// хэшированием, совпасть не могут, а смысл один — не качать убранное заново.
+        ///
         /// Без этого списка кнопка «Убрать» для альбома выглядела бы сломанной: файла в
         /// кэше нет, ссылка в альбоме осталась, и очередная синхронизация скачивала бы
         /// снимок заново. Имя файла — хэш ссылки, поэтому список остаётся верным и после
