@@ -168,6 +168,21 @@ namespace PhotoFrame
         private bool _isMotionPlayback;
 
         /// <summary>
+        /// Заставка живого фото текущего кадра либо null. Ею включается кнопка повтора
+        /// и по ней же качается клип.
+        /// </summary>
+        private string? _currentMotionPoster;
+
+        /// <summary>
+        /// Живое фото крутится по кругу, пока не выключат.
+        /// </summary>
+        /// <remarks>
+        /// На это время слайд-шоу останавливается: смысл повтора в том, чтобы смотреть
+        /// именно этот кадр, а не проводить его мимо по расписанию.
+        /// </remarks>
+        private bool _isMotionLooping;
+
+        /// <summary>
         /// Файл, который проигрывается на текущем слайде.
         /// </summary>
         /// <remarks>
@@ -1486,6 +1501,11 @@ namespace PhotoFrame
 
                 AlbumVideoBadge.IsVisible = false;
 
+                // Кнопка повтора живёт ровно один кадр: на следующем снимке повторять
+                // уже нечего, а включённый круг нужно снять вместе с ним.
+                _currentMotionPoster = slideClip is { IsMotionPhoto: true } ? mediaPath : null;
+                StopMotionLoop(resumeSlideshow: false);
+
                 if (slideClip is { IsMotionPhoto: false })
                 {
                     ShowAlbumVideoBadge(slideClip.DurationMilliseconds, isReady: false);
@@ -1673,24 +1693,111 @@ namespace PhotoFrame
         /// секунда движения — лишь его начало. Так ведут себя живые фото на телефоне,
         /// и повторять их по кругу незачем.
         /// </remarks>
-        private async Task AnimateMotionPhotoAsync(string posterPath, int photoGeneration)
+        private async Task AnimateMotionPhotoAsync(
+            string posterPath, int photoGeneration, bool loop = false)
         {
-            string? clipPath = await SlideClips.TryGetAsync(posterPath).ConfigureAwait(true);
-
-            if (clipPath is null
-                || photoGeneration != _photoGeneration
-                || _isNightModeActive == true)
+            // Полоска внизу кадра, а не отметка по центру: живое фото должно выглядеть
+            // снимком, но ждать молча тоже нельзя — клип едет с сервера.
+            var downloadProgress = new Progress<double>(fraction =>
             {
+                if (photoGeneration == _photoGeneration)
+                {
+                    MotionLoadingBar.Progress = Math.Clamp(fraction, 0, 1);
+                    MotionLoadingBar.IsVisible = _isNightModeActive != true;
+                }
+            });
+
+            MotionLoadingBar.Progress = 0;
+            MotionLoadingBar.IsVisible = SlideClips.FindReady(posterPath) is null
+                                         && _isNightModeActive != true;
+
+            string? clipPath = await SlideClips
+                .TryGetAsync(posterPath, downloadProgress).ConfigureAwait(true);
+
+            if (photoGeneration != _photoGeneration)
+            {
+                return;
+            }
+
+            MotionLoadingBar.IsVisible = false;
+
+            if (clipPath is null || _isNightModeActive == true)
+            {
+                if (clipPath is null && loop)
+                {
+                    // Молча не оставляем: кнопку нажали и вправе знать, почему ничего
+                    // не произошло.
+                    StopMotionLoop(resumeSlideshow: true);
+                    ShowToast("Клип живого фото не загрузился");
+                }
+
                 return;
             }
 
             _isMotionPlayback = true;
             _currentAlbumVideoPoster = posterPath;
 
-            VideoPlayer.IsLooping = false;
+            VideoPlayer.IsLooping = loop;
             VideoPlayer.IsMuted = true;
             VideoPlayer.SourcePath = clipPath;
             VideoPlayer.Play();
+        }
+
+        /// <summary>
+        /// Включает и выключает бесконечный повтор живого фото.
+        /// </summary>
+        private void OnMotionRepeatClicked(object? sender, EventArgs e)
+        {
+            string? posterPath = _currentMotionPoster;
+            if (posterPath is null)
+            {
+                return;
+            }
+
+            _panelHideTimer.Stop();
+            _panelHideTimer.Start();
+
+            if (_isMotionLooping)
+            {
+                StopMotionLoop(resumeSlideshow: true);
+                return;
+            }
+
+            // Пока крутим — слайд не меняется: иначе кадр уехал бы через свои десять
+            // секунд, и повтор оказался бы бессмысленным.
+            _isMotionLooping = true;
+            _slideshowTimer.Stop();
+            UpdateTapRevealedOverlays();
+
+            _ = AnimateMotionPhotoAsync(posterPath, _photoGeneration, loop: true);
+        }
+
+        /// <summary>
+        /// Снимает повтор: проигрыватель гаснет, на экране остаётся снимок.
+        /// </summary>
+        /// <param name="resumeSlideshow">
+        /// Вернуть ли обычный ход показа. При смене кадра — нет: там своё расписание.
+        /// </param>
+        private void StopMotionLoop(bool resumeSlideshow)
+        {
+            MotionLoadingBar.IsVisible = false;
+
+            if (!_isMotionLooping)
+            {
+                UpdateTapRevealedOverlays();
+                return;
+            }
+
+            _isMotionLooping = false;
+            StopVideoPlayback();
+
+            if (resumeSlideshow && _isNightModeActive != true)
+            {
+                _slideshowTimer.Stop();
+                _slideshowTimer.Start();
+            }
+
+            UpdateTapRevealedOverlays();
         }
 
         /// <summary>Отметка «за этим кадром видео» с его длительностью.</summary>
@@ -1748,6 +1855,10 @@ namespace PhotoFrame
             // Ночью показывать нечего: обновлять, смотреть сведения и убирать кадр —
             // всё это про снимок, которого на экране нет. Настройки остаются.
             PanelLeftButtons.IsVisible = isDayTime;
+
+            // Повторять нечего, если за кадром нет клипа живого фото.
+            MotionRepeatButton.IsVisible = _currentMotionPoster is not null && isDayTime;
+            MotionRepeatButton.Opacity = _isMotionLooping ? 1.0 : 0.45;
 
             PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
             RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;
@@ -1888,9 +1999,15 @@ namespace PhotoFrame
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 // Живое фото отыграло свою секунду: гасим проигрыватель и оставляем
-                // кадр на экране — время слайда не кончилось.
+                // кадр на экране — время слайда не кончилось. В режиме повтора клип
+                // крутит сам проигрыватель, и сюда мы не попадаем вовсе.
                 if (_isMotionPlayback)
                 {
+                    if (_isMotionLooping)
+                    {
+                        return;
+                    }
+
                     StopVideoPlayback();
                     return;
                 }

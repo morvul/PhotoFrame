@@ -122,6 +122,24 @@
         </Grid>
 
         <!--
+            Ход загрузки клипа живого фото. Внизу кадра и без подписи: живое фото должно
+            выглядеть снимком, который просто ожил, и отметка по центру экрана этому
+            мешала бы. Но и молчать нельзя — клип едет с сервера пару секунд, а до тех
+            пор кадр ничем не отличается от обычного.
+        -->
+        <ProgressBar x:Name="MotionLoadingBar"
+                     IsVisible="False"
+                     InputTransparent="True"
+                     Progress="0"
+                     ProgressColor="#4FC3F7"
+                     BackgroundColor="#40FFFFFF"
+                     HeightRequest="4"
+                     WidthRequest="360"
+                     HorizontalOptions="Center"
+                     VerticalOptions="End"
+                     Margin="0,0,0,28" />
+
+        <!--
             Отметка на кадре альбома, за которым стоит видео: сам клип забирается только
             когда слайд показан, и без отметки было бы непонятно, чего мы ждём.
         -->
@@ -292,6 +310,24 @@
                 <Button x:Name="FileInfoButton"
                         Text="ℹ"
                         Clicked="OnFileInfoClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontSize="22"
+                        WidthRequest="56"
+                        HeightRequest="56"
+                        CornerRadius="28"
+                        HorizontalOptions="Start" />
+
+                <!--
+                    Повтор живого фото: кадр остаётся на экране и его секунда движения
+                    играется по кругу, пока кнопку не нажмут снова. Отдельная от повтора
+                    видео: там слайд — сам клип, здесь — снимок, и общий переключатель
+                    означал бы разное в двух случаях. Видна только на живом фото.
+                -->
+                <Button x:Name="MotionRepeatButton"
+                        Text="🔁"
+                        IsVisible="False"
+                        Clicked="OnMotionRepeatClicked"
                         BackgroundColor="#80000000"
                         TextColor="White"
                         FontSize="22"
