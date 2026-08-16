@@ -136,7 +136,7 @@ namespace PhotoFrame
             ShareUrlEntry.Text = FrameSettings.SharedAlbumUrl;
 
             ImmichUrlEntry.Text = FrameSettings.ImmichServerUrl;
-            ImmichApiKeyEntry.Text = FrameSettings.ImmichApiKey;
+            ShowImmichApiKey();
             ShowImmichAlbumChoices();
 
             AlbumLimitPicker.SelectedIndex = Array.IndexOf(
@@ -389,6 +389,33 @@ namespace PhotoFrame
                 CultureInfo.CurrentCulture,
                 "Кэш скачанных снимков: {0:F0} МБ",
                 totalBytes / 1024d / 1024d);
+        }
+
+        /// <summary>
+        /// Подставляет ключ доступа: сохранённый, а если его нет — из файла на рамке.
+        /// </summary>
+        /// <remarks>
+        /// Набирать сорок случайных символов пультом по экранной клавиатуре нереально,
+        /// поэтому ключ можно просто скопировать на рамку файлом по USB. Файл читается
+        /// только когда ключ ещё не задан: иначе он затирал бы то, что человек ввёл
+        /// на самом устройстве.
+        /// </remarks>
+        private void ShowImmichApiKey()
+        {
+            string savedApiKey = FrameSettings.ImmichApiKey;
+
+            if (savedApiKey.Length > 0)
+            {
+                ImmichApiKeyEntry.Text = savedApiKey;
+                return;
+            }
+
+            string apiKeyFromFile = ImmichKeyFile.TryRead();
+            ImmichApiKeyEntry.Text = apiKeyFromFile;
+
+            ImmichStatusLabel.Text = apiKeyFromFile.Length > 0
+                ? "Ключ взят из файла immich.key"
+                : $"Ключ можно скопировать на рамку файлом {ImmichKeyFile.FilePath}";
         }
 
         /// <summary>
