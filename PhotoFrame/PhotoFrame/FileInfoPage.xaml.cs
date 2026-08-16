@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 using Microsoft.Maui;
 using Microsoft.Maui.Controls;
@@ -47,6 +48,11 @@ namespace PhotoFrame
             List<MediaDetailsReader.DetailRow> rows =
                 await Task.Run(() => MediaDetailsReader.Read(mediaPath)).ConfigureAwait(true);
 
+            // Про кадр Immich файл в кэше знает мало: это превью с сервера, EXIF из него
+            // вырезан, а имя — хэш. Всё остальное сервер отдал при синхронизации, и эти
+            // строки идут первыми: они и отвечают на вопрос «что это за снимок».
+            rows.InsertRange(0, BuildImmichRows(MediaPath));
+
             DetailsLayout.Clear();
 
             if (rows.Count == 0)
@@ -59,6 +65,46 @@ namespace PhotoFrame
             {
                 DetailsLayout.Add(BuildRow(row.Label, row.Value));
             }
+        }
+
+        /// <summary>
+        /// Сведения о кадре Immich, взятые из списка рядом с кэшем.
+        /// </summary>
+        /// <remarks>
+        /// Для кадра клипа сведения ищутся по заставке: страница показывает уже сам
+        /// клип, а лежит он в общем каталоге, где списка Immich нет. Имя у клипа то же,
+        /// что у заставки, поэтому поиск идёт по нему.
+        /// </remarks>
+        private static List<MediaDetailsReader.DetailRow> BuildImmichRows(string? mediaPath)
+        {
+            var rows = new List<MediaDetailsReader.DetailRow>();
+
+            if (mediaPath is null)
+            {
+                return rows;
+            }
+
+            ImmichSlideInfo? slide = ImmichSidecar.FindByAnyPath(mediaPath);
+            if (slide is null)
+            {
+                return rows;
+            }
+
+            rows.Add(new MediaDetailsReader.DetailRow("Источник", "Immich"));
+            rows.Add(new MediaDetailsReader.DetailRow("Имя на сервере", slide.FileName));
+
+            if (slide.CameraName.Length > 0)
+            {
+                rows.Add(new MediaDetailsReader.DetailRow("Снято на", slide.CameraName));
+            }
+
+            if (slide.TakenAt is { } takenAt)
+            {
+                rows.Add(new MediaDetailsReader.DetailRow(
+                    "Дата съёмки", takenAt.ToString("d MMMM yyyy, HH:mm", CultureInfo.CurrentCulture)));
+            }
+
+            return rows;
         }
 
         private static Label BuildMessage(string text) => new()

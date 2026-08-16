@@ -95,8 +95,8 @@
 
                         <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
                             <VerticalStackLayout Grid.Column="0">
-                                <Label Text="Скачивать видео из альбома" TextColor="White" FontSize="16" />
-                                <Label Text="Видео весят куда больше снимков. Выключено — они не показываются"
+                                <Label Text="Скачивать видео" TextColor="White" FontSize="16" />
+                                <Label Text="Из альбома и из Immich. Видео весят куда больше снимков; выключено — они не показываются"
                                        TextColor="Gray" FontSize="13" />
                             </VerticalStackLayout>
                             <Switch Grid.Column="1" x:Name="AlbumVideosSwitch"
@@ -106,7 +106,7 @@
                         <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
                             <VerticalStackLayout Grid.Column="0">
                                 <Label Text="Оживлять живые фото" TextColor="White" FontSize="16" />
-                                <Label Text="Снимок с парой секунд движения проигрывается один раз и остаётся кадром"
+                                <Label Text="Из альбома и из Immich (снятые на iPhone). Клип играется один раз, дальше кадр остаётся снимком"
                                        TextColor="Gray" FontSize="13" />
                             </VerticalStackLayout>
                             <Switch Grid.Column="1" x:Name="MotionPhotosSwitch"
@@ -170,7 +170,7 @@
                                 CornerRadius="8"
                                 HorizontalOptions="Start" />
 
-                        <Label Text="Видео с сервера пока не показываются — только снимки."
+                        <Label Text="Видео и живые фото берутся по тем же двум переключателям, что и у альбома."
                                TextColor="Gray" FontSize="13" />
                     </VerticalStackLayout>
 

@@ -137,13 +137,21 @@ namespace PhotoFrame
         /// которого там уже нет. Разбор старого пути как раз убирает запись: сканер
         /// удаляет из индекса то, чего на диске не нашлось.
         /// </remarks>
-        private static void NotifyMediaScanner(string vanishedPath, string createdPath)
+        /// <param name="vanishedPath">
+        /// Пусто, когда файл только появился и убирать из индекса нечего: так вызывает
+        /// загрузчик клипов, складывающий их в общую память мимо сканера.
+        /// </param>
+        public static void NotifyMediaScanner(string? vanishedPath, string createdPath)
         {
             try
             {
+                string[] changedPaths = vanishedPath is null
+                    ? new[] { createdPath }
+                    : new[] { vanishedPath, createdPath };
+
                 MediaScannerConnection.ScanFile(
                     Android.App.Application.Context,
-                    new[] { vanishedPath, createdPath },
+                    changedPaths,
                     null,
                     null);
             }

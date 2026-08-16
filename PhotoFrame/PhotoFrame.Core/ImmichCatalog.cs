@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 
 namespace PhotoFrame
@@ -11,10 +12,28 @@ namespace PhotoFrame
     public sealed record ImmichAlbum(string Id, string Name, int AssetCount);
 
     /// <summary>Снимок или видео на сервере Immich.</summary>
-    /// <param name="Id">Идентификатор объекта: по нему строится адрес загрузки.</param>
-    /// <param name="FileName">Исходное имя файла — только для подписей и отладки.</param>
-    /// <param name="IsVideo">True для видео: такие объекты рамка пока пропускает.</param>
-    public readonly record struct ImmichAsset(string Id, string FileName, bool IsVideo);
+    /// <param name="Id">Идентификатор объекта: по нему строятся адреса загрузки.</param>
+    /// <param name="FileName">Исходное имя файла — оно и показывается подписью кадра.</param>
+    /// <param name="IsVideo">True для видео: у него качается заставка, клип — по требованию.</param>
+    /// <param name="DurationMilliseconds">Длительность клипа; 0 у снимка.</param>
+    /// <param name="LivePhotoVideoId">
+    /// Идентификатор клипа живого фото (снято на iPhone) либо пусто. Сам клип отдельным
+    /// объектом в выдаче не появляется, поэтому оживить кадр можно только по этой ссылке.
+    /// </param>
+    /// <param name="CameraName">Чем снято, из exifInfo; пусто, если сервер не знает.</param>
+    /// <param name="TakenAt">Когда снято, из exifInfo.</param>
+    public readonly record struct ImmichAsset(
+        string Id,
+        string FileName,
+        bool IsVideo,
+        int DurationMilliseconds = 0,
+        string LivePhotoVideoId = "",
+        string CameraName = "",
+        DateTime? TakenAt = null)
+    {
+        /// <summary>True, если к снимку приложен клип на пару секунд.</summary>
+        public bool IsMotionPhoto => !IsVideo && LivePhotoVideoId.Length > 0;
+    }
 
     /// <summary>
     /// Адреса и разбор ответов Immich.
@@ -89,6 +108,18 @@ namespace PhotoFrame
         public static string BuildPreviewUrl(string serverUrl, string assetId) =>
             NormalizeServerUrl(serverUrl) + "/api/assets/" + Uri.EscapeDataString(assetId)
             + "/thumbnail?size=preview";
+
+        /// <summary>
+        /// Адрес видеофайла.
+        /// </summary>
+        /// <remarks>
+        /// playback, а не original: сервер отдаёт перекодированный H.264, который рамка
+        /// разбирает аппаратно, тогда как оригинал с телефона бывает HEVC 10 бит или
+        /// вовсе HDR — такой клип на этом железе не открывается.
+        /// </remarks>
+        public static string BuildVideoUrl(string serverUrl, string assetId) =>
+            NormalizeServerUrl(serverUrl) + "/api/assets/" + Uri.EscapeDataString(assetId)
+            + "/video/playback";
 
         /// <summary>
         /// Тело запроса к постраничному поиску.
@@ -202,13 +233,76 @@ namespace PhotoFrame
                 bool isVideo = string.Equals(
                     ReadString(assetElement, "type"), "VIDEO", StringComparison.OrdinalIgnoreCase);
 
+                (string cameraName, DateTime? takenAt) = ReadExifInfo(assetElement);
+
                 assets.Add(new ImmichAsset(
                     assetId,
                     ReadString(assetElement, "originalFileName") ?? assetId,
-                    isVideo));
+                    isVideo,
+                    ParseDurationMilliseconds(ReadString(assetElement, "duration")),
+                    ReadString(assetElement, "livePhotoVideoId") ?? string.Empty,
+                    cameraName,
+                    takenAt));
             }
 
             return assets;
+        }
+
+        /// <summary>
+        /// Разбирает длительность клипа, записанную сервером как «00:00:12.345000».
+        /// </summary>
+        /// <remarks>
+        /// Не TimeSpan.Parse: у снимков поле бывает нулевым («0:00:00.00000») или
+        /// отсутствует вовсе, и падать из-за подписи под кадром незачем.
+        /// </remarks>
+        public static int ParseDurationMilliseconds(string? durationText)
+        {
+            if (string.IsNullOrWhiteSpace(durationText))
+            {
+                return 0;
+            }
+
+            return TimeSpan.TryParse(durationText, CultureInfo.InvariantCulture, out TimeSpan duration)
+                   && duration > TimeSpan.Zero
+                ? (int)duration.TotalMilliseconds
+                : 0;
+        }
+
+        /// <summary>
+        /// Чем и когда снят кадр — из вложенного объекта exifInfo.
+        /// </summary>
+        /// <remarks>
+        /// Нужно потому, что рамка показывает не оригинал, а превью с сервера, и EXIF
+        /// в нём уже вырезан: без этих полей подпись «чем и когда снято» у снимков
+        /// Immich была бы пуста всегда.
+        /// </remarks>
+        private static (string CameraName, DateTime? TakenAt) ReadExifInfo(JsonElement assetElement)
+        {
+            if (assetElement.ValueKind != JsonValueKind.Object
+                || !assetElement.TryGetProperty("exifInfo", out JsonElement exifElement)
+                || exifElement.ValueKind != JsonValueKind.Object)
+            {
+                return (string.Empty, null);
+            }
+
+            string cameraName = CameraNameFormatter.Combine(
+                ReadString(exifElement, "make"), ReadString(exifElement, "model")) ?? string.Empty;
+
+            DateTime? takenAt = null;
+            string? takenText = ReadString(exifElement, "dateTimeOriginal");
+
+            if (takenText is not null
+                && DateTime.TryParse(
+                    takenText,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                    out DateTime parsedDate))
+            {
+                // Сервер отдаёт время в UTC, а подпись читают на стене — местное.
+                takenAt = parsedDate.ToLocalTime();
+            }
+
+            return (cameraName, takenAt);
         }
 
         /// <summary>

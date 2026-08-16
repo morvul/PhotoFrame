@@ -87,6 +87,74 @@ namespace PhotoFrame.Core.Tests
             Assert.Equal("real", Assert.Single(ImmichCatalog.ParseSearchAssets(searchJson, out _)).Id);
         }
 
+        [Theory]
+        [InlineData("00:00:12.345000", 12345)]
+        [InlineData("0:00:03.50000", 3500)]
+        [InlineData("00:01:30.000000", 90000)]
+
+        // У снимка поле нулевое, пустое либо отсутствует — длительности нет.
+        [InlineData("0:00:00.00000", 0)]
+        [InlineData("", 0)]
+        [InlineData(null, 0)]
+        [InlineData("непонятно", 0)]
+        public void ParseDurationMilliseconds_ReadsServerFormat(string? durationText, int expected) =>
+            Assert.Equal(expected, ImmichCatalog.ParseDurationMilliseconds(durationText));
+
+        [Fact]
+        public void ParseSearchAssets_ReadsClipLengthAndLivePhotoLink()
+        {
+            const string searchJson = """
+                {"assets":{"items":[
+                  {"id":"clip","type":"VIDEO","duration":"00:00:07.500000"},
+                  {"id":"live","type":"IMAGE","livePhotoVideoId":"live-clip"},
+                  {"id":"still","type":"IMAGE"}
+                ]}}
+                """;
+
+            List<ImmichAsset> assets = ImmichCatalog.ParseSearchAssets(searchJson, out _);
+
+            Assert.Equal(7500, assets[0].DurationMilliseconds);
+            Assert.True(assets[1].IsMotionPhoto);
+            Assert.Equal("live-clip", assets[1].LivePhotoVideoId);
+            Assert.False(assets[2].IsMotionPhoto);
+        }
+
+        /// <summary>
+        /// Рамка показывает превью с сервера, а EXIF из него вырезан: съёмочные поля
+        /// берутся только отсюда.
+        /// </summary>
+        [Fact]
+        public void ParseSearchAssets_ReadsCameraAndDateFromExifInfo()
+        {
+            const string searchJson = """
+                {"assets":{"items":[{"id":"one","type":"IMAGE","exifInfo":{
+                  "make":"NIKON CORPORATION","model":"NIKON D60",
+                  "dateTimeOriginal":"2024-07-14T09:30:00.000Z"}}]}}
+                """;
+
+            ImmichAsset asset = Assert.Single(ImmichCatalog.ParseSearchAssets(searchJson, out _));
+
+            Assert.Equal("NIKON D60", asset.CameraName);
+            Assert.Equal(new DateTime(2024, 7, 14, 9, 30, 0, DateTimeKind.Utc), asset.TakenAt!.Value.ToUniversalTime());
+        }
+
+        [Fact]
+        public void ParseSearchAssets_SurvivesAssetWithoutExifInfo()
+        {
+            const string searchJson = """{"assets":{"items":[{"id":"one","type":"IMAGE"}]}}""";
+
+            ImmichAsset asset = Assert.Single(ImmichCatalog.ParseSearchAssets(searchJson, out _));
+
+            Assert.Equal(string.Empty, asset.CameraName);
+            Assert.Null(asset.TakenAt);
+        }
+
+        [Fact]
+        public void BuildVideoUrl_AsksForTheTranscodedCopy() =>
+            Assert.Equal(
+                "http://immich.home/api/assets/abc/video/playback",
+                ImmichCatalog.BuildVideoUrl("immich.home", "abc"));
+
         [Fact]
         public void ParseSearchAssets_ReportsNextPageGivenAsString()
         {

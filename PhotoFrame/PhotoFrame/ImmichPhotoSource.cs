@@ -123,9 +123,14 @@ namespace PhotoFrame
             List<ImmichAsset> assets = await GetAssetsAsync(
                 serverUrl, apiKey, FrameSettings.ImmichAlbumId, cancellationToken).ConfigureAwait(false);
 
-            // Видео отбрасываются до всех подсчётов, иначе их пришлось бы объяснять
-            // в каждом числе итога.
-            int skippedVideoCount = assets.RemoveAll(asset => asset.IsVideo);
+            // Видео остаются в наборе: качается их заставка, а сам клип забирается,
+            // когда слайд-шоу до кадра дойдёт, — см. ImmichVideoCache. Выключенная
+            // настройка убирает их совсем: заставка без возможности воспроизвести
+            // только сбивает с толку.
+            if (!FrameSettings.DownloadAlbumVideos)
+            {
+                assets.RemoveAll(asset => asset.IsVideo);
+            }
 
             int trashedCount = RemoveTrashedAssets(assets);
 
@@ -149,16 +154,11 @@ namespace PhotoFrame
             string signature = ComputeSignature(assets);
 
             // Самый частый случай: на сервере ничего не изменилось, диск можно не трогать.
-            if (!forceRefresh && IsAlreadyDownloaded(signature))
+            if (!forceRefresh && ImmichSidecar.HasIndex && IsAlreadyDownloaded(signature))
             {
                 int cachedCount = GetCachedPhotoPaths().Count;
                 return new AlbumSyncResult(
-                    cachedCount,
-                    DownloadedCount: 0,
-                    cachedCount,
-                    RemovedCount: 0,
-                    availableCount,
-                    DescribeSkippedVideos(skippedVideoCount));
+                    cachedCount, DownloadedCount: 0, cachedCount, RemovedCount: 0, availableCount);
             }
 
             AlbumSyncResult result = await SyncPhotosAsync(
@@ -166,21 +166,8 @@ namespace PhotoFrame
 
             Preferences.Default.Set(SignatureKey, signature);
 
-            return result with
-            {
-                AvailableCount = availableCount,
-                Warning = DescribeSkippedVideos(skippedVideoCount),
-            };
+            return result with { AvailableCount = availableCount };
         }
-
-        /// <summary>
-        /// Видео — не ошибка, но и не пропажа: о них нужно сказать вслух, иначе число
-        /// кадров на рамке не сойдётся с числом объектов на сервере.
-        /// </summary>
-        private static string? DescribeSkippedVideos(int skippedVideoCount) =>
-            skippedVideoCount == 0
-                ? null
-                : $"Immich: видео пока не показываются, пропущено {skippedVideoCount}.";
 
         /// <summary>
         /// Объекты библиотеки либо одного альбома, страница за страницей.
@@ -349,6 +336,10 @@ namespace PhotoFrame
 
             int removedCount = RemoveFilesOutsideLibrary(photoDirectory, availableFileNames);
             WriteManifest(photoDirectory, availableFileNames);
+
+            // Список пишется после файлов: подписи и клипы нужны только тем кадрам,
+            // которые уже лежат в кэше.
+            ImmichSidecar.WriteIndex(assets, asset => BuildCacheFileName(asset.Id));
 
             return new AlbumSyncResult(
                 TotalPhotoCount: availableFileNames.Count,

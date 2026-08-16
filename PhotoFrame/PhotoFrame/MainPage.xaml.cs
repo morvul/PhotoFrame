@@ -991,7 +991,7 @@ namespace PhotoFrame
             // его размер, разрешение и длительность. Пока клип не скачан, показываем
             // то, что есть, — заставку.
             FileInfoPage.MediaPath = _currentVideoPath
-                                     ?? AlbumVideoCache.FindReadyVideo(mediaPath)
+                                     ?? SlideClips.FindReady(mediaPath)
                                      ?? mediaPath;
 
             await Shell.Current.GoToAsync(nameof(FileInfoPage));
@@ -1401,11 +1401,19 @@ namespace PhotoFrame
             // Источник или имя файла слева от счётчика: сам счётчик остаётся прижатым
             // к углу. Кадр альбома назван хэшем ссылки, и такое имя не говорит ничего —
             // куда полезнее знать, что снимок пришёл из Google Photos.
+            // Имя файла кадра Immich — хэш, и подписывать им кадр бессмысленно; зато
+            // исходное имя сохранено при синхронизации, и оно как раз читаемое.
+            ImmichSlideInfo? immichSlide = ImmichSidecar.Find(mediaPath);
+
             string frameLabel = MediaTrash.IsAlbumPhoto(mediaPath)
                 ? "Google Photos"
-                : MediaTrash.IsImmichPhoto(mediaPath)
-                    ? "Immich"
-                    : MediaLabelFormatter.Describe(mediaPath);
+                : immichSlide is not null
+                    ? "Immich/" + immichSlide.FileName
+                    : MediaTrash.IsImmichPhoto(mediaPath)
+                        // Список ещё не составлен — до ближайшей синхронизации у кадра
+                        // есть только имя-хэш, и показывать его незачем.
+                        ? "Immich"
+                        : MediaLabelFormatter.Describe(mediaPath);
 
             SetOutlinedText(
                 _photoCounterLabels, $"{frameLabel}  ·  {_currentPhotoIndex + 1}/{photoCount}");
@@ -1432,17 +1440,20 @@ namespace PhotoFrame
                     _ = PlaceClockOverPhotoAsync(mediaPath, photoGeneration);
                 }
 
-                // За кадром альбома может стоять клип: заставка уже на экране, а сам
-                // файл забирается только теперь — см. AlbumVideoCache.
-                AlbumVideoCache.AlbumClip? albumClip = AlbumVideoCache.FindClip(mediaPath);
+                // За сетевым кадром может стоять клип: заставка уже на экране, а сам
+                // файл забирается только теперь — см. SlideClips.
+                SlideClip? slideClip = FrameSettings.DownloadAlbumVideos
+                    ? SlideClips.Find(mediaPath)
+                    : null;
+
                 AlbumVideoBadge.IsVisible = false;
 
-                if (albumClip is { IsMotionPhoto: false })
+                if (slideClip is { IsMotionPhoto: false })
                 {
-                    ShowAlbumVideoBadge(albumClip.DurationMilliseconds, isReady: false);
+                    ShowAlbumVideoBadge(slideClip.DurationMilliseconds, isReady: false);
                     _ = PlayAlbumVideoAsync(mediaPath, photoGeneration);
                 }
-                else if (albumClip is { IsMotionPhoto: true } && FrameSettings.AnimateMotionPhotos)
+                else if (slideClip is { IsMotionPhoto: true } && FrameSettings.AnimateMotionPhotos)
                 {
                     // Живое фото оживает молча: ни отметки, ни полосы загрузки — кадр
                     // должен выглядеть снимком, который просто на секунду ожил.
@@ -1482,9 +1493,17 @@ namespace PhotoFrame
                 return;
             }
 
-            MediaDetailsReader.CaptureInfo captureInfo = await Task
-                .Run(() => MediaDetailsReader.ReadCaptureInfo(mediaPath))
-                .ConfigureAwait(true);
+            // У кадра Immich EXIF читать неоткуда: рамка показывает превью с сервера,
+            // а из него съёмочные поля вырезаны. Зато сервер отдал их при синхронизации.
+            ImmichSlideInfo? immichSlide = ImmichSidecar.Find(mediaPath);
+
+            MediaDetailsReader.CaptureInfo captureInfo = immichSlide is null
+                ? await Task
+                    .Run(() => MediaDetailsReader.ReadCaptureInfo(mediaPath))
+                    .ConfigureAwait(true)
+                : new MediaDetailsReader.CaptureInfo(
+                    immichSlide.CameraName.Length == 0 ? null : immichSlide.CameraName,
+                    immichSlide.TakenAt);
 
             if (photoGeneration != _photoGeneration)
             {
@@ -1584,7 +1603,7 @@ namespace PhotoFrame
 
                 if (posterPath is not null)
                 {
-                    AlbumVideoCache.MarkUnplayable(posterPath);
+                    SlideClips.MarkUnplayable(posterPath);
 
                     // О живом фото не сообщаем: оно и так остаётся снимком, а сообщение
                     // на каждый такой кадр было бы навязчивым.
@@ -1618,8 +1637,7 @@ namespace PhotoFrame
         /// </remarks>
         private async Task AnimateMotionPhotoAsync(string posterPath, int photoGeneration)
         {
-            string? clipPath = await AlbumVideoCache.TryGetVideoAsync(posterPath)
-                .ConfigureAwait(true);
+            string? clipPath = await SlideClips.TryGetAsync(posterPath).ConfigureAwait(true);
 
             if (clipPath is null
                 || photoGeneration != _photoGeneration
