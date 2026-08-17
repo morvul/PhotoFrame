@@ -174,6 +174,31 @@ namespace PhotoFrame
         private string? _currentMotionPoster;
 
         /// <summary>
+        /// Пауза перед запуском клипа живого фото.
+        /// </summary>
+        /// <remarks>
+        /// Полторы секунды нужны не для красоты: перелистывая кадры двойными касаниями,
+        /// можно пройти десяток слайдов за пару секунд, и без задержки на каждый из них
+        /// заводился бы и тут же сносился декодер. Именно такой поток вендорный декодер
+        /// этой рамки и не выдерживает. При обычном показе кадр держится секунд десять,
+        /// и задержки не видно.
+        /// </remarks>
+        private const int MotionStartDelayMilliseconds = 1500;
+
+        /// <summary>
+        /// Насколько живые фото затихают после неудачного клипа.
+        /// </summary>
+        /// <remarks>
+        /// Отказ декодера редко бывает единичным: если он споткнулся, следующий клип
+        /// обычно спотыкается тоже. Минута тишины даёт ему прийти в себя, а показу —
+        /// продолжаться снимками.
+        /// </remarks>
+        private static readonly TimeSpan MotionFailureBackoff = TimeSpan.FromMinutes(1);
+
+        /// <summary>До этого момента живые фото не оживляем; null — можно.</summary>
+        private DateTime? _motionBackoffUntil;
+
+        /// <summary>
         /// Живое фото крутится по кругу, пока не выключат.
         /// </summary>
         /// <remarks>
@@ -1787,6 +1812,11 @@ namespace PhotoFrame
 
                 if (posterPath is not null)
                 {
+                    // Пауза для живых фото ставится на любой отказ: спотыкается сам
+                    // декодер, а не конкретный клип, и следующий кадр обычно повторит
+                    // судьбу этого.
+                    _motionBackoffUntil = DateTime.Now + MotionFailureBackoff;
+
                     SlideClips.MarkUnplayable(posterPath);
 
                     // О живом фото не сообщаем: оно и так остаётся снимком, а сообщение
@@ -1822,6 +1852,23 @@ namespace PhotoFrame
         private async Task AnimateMotionPhotoAsync(
             string posterPath, int photoGeneration, bool loop = false)
         {
+            // После отказа декодера живые фото молчат: кадр остаётся снимком, а не
+            // тянет за собой вереницу таких же отказов. Нажатие 🔁 — просьба явная,
+            // и её выполняем, даже если пауза ещё не кончилась.
+            if (!loop && _motionBackoffUntil is { } quietUntil && DateTime.Now < quietUntil)
+            {
+                return;
+            }
+
+            // Пауза перед клипом: пролистывание кадров не должно заводить декодер
+            // на каждый пройденный слайд.
+            await Task.Delay(MotionStartDelayMilliseconds).ConfigureAwait(true);
+
+            if (photoGeneration != _photoGeneration)
+            {
+                return;
+            }
+
             // Полоска внизу кадра, а не отметка по центру: живое фото должно выглядеть
             // снимком, но ждать молча тоже нельзя — клип едет с сервера.
             var downloadProgress = new Progress<double>(fraction =>

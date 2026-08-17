@@ -27,6 +27,15 @@ namespace PhotoFrame
     /// VP9 так и остаётся недостижимым: единственный декодер на него программный и
     /// ограничен 720x480, а клипы альбома — 1080p. Такие кадры страница отмечает
     /// и показывает снимком.
+    ///
+    /// Отыгравший слой не просто останавливается, а пересоздаётся целиком. Причина
+    /// измерена на рамке: после Stop и ClearMediaItems проигрыватель держит декодер
+    /// за собой, и следующий клип отдаётся тому же экземпляру. С библиотекой, где
+    /// живых фото почти две тысячи, клип запускается едва ли не на каждом кадре, и
+    /// вендорный декодер перестаёт разбирать очередь — журнал заполняется
+    /// «Rkvpu_SendInputData: stream list full wait» на пятнадцать секунд подряд
+    /// (одно ядро занято целиком), после чего приложение падает с SIGSEGV. Свежий
+    /// экземпляр на каждый клип этот путь исключает: декодер честно отдаётся системе.
     /// </remarks>
     public class VideoPlayerViewHandler : ViewHandler<VideoPlayerView, FrameLayout>
     {
@@ -62,6 +71,9 @@ namespace PhotoFrame
 
         private readonly Layer[] _layers = new Layer[2];
 
+        /// <summary>Контейнер нужен, чтобы пересоздавать слой на том же виде.</summary>
+        private FrameLayout? _container;
+
         /// <summary>Слой, который сейчас на виду.</summary>
         private int _frontIndex;
 
@@ -78,10 +90,45 @@ namespace PhotoFrame
             var container = (FrameLayout)LayoutInflater.From(Context)!
                 .Inflate(Resource.Layout.video_player, null)!;
 
+            _container = container;
+
             _layers[0] = CreateLayer(container.FindViewById<PlayerView>(Resource.Id.player_back)!, 0);
             _layers[1] = CreateLayer(container.FindViewById<PlayerView>(Resource.Id.player_front)!, 1);
 
             return container;
+        }
+
+        /// <summary>
+        /// Отдаёт декодер и заводит на том же виде новый проигрыватель.
+        /// </summary>
+        /// <remarks>
+        /// Вызывается, когда слой отыграл и скрылся: к следующему клипу он должен быть
+        /// чистым. Release освобождает MediaCodec немедленно, а не когда до объекта
+        /// доберётся сборщик, — на этом и держится весь смысл.
+        /// </remarks>
+        private void RecycleLayer(int layerIndex)
+        {
+            Layer? layer = _layers[layerIndex];
+            if (layer is null || _container is null)
+            {
+                return;
+            }
+
+            try
+            {
+                layer.View.Player = null;
+                layer.Player.RemoveListener(layer.Listener);
+                layer.Player.Release();
+                layer.Listener.Dispose();
+            }
+            catch (Java.Lang.Throwable releaseFailure)
+            {
+                // Даже если освободить не удалось, новый экземпляр всё равно нужен:
+                // играть на сломанном смысла нет.
+                FrameLog.Warn($"Проигрыватель не освобождён: {releaseFailure.Message}");
+            }
+
+            _layers[layerIndex] = CreateLayer(layer.View, layerIndex);
         }
 
         private Layer CreateLayer(PlayerView view, int index)
@@ -172,6 +219,10 @@ namespace PhotoFrame
                 {
                     outgoing.Player.Stop();
                     outgoing.Player.ClearMediaItems();
+
+                    // Слой ушёл с виду — отдаём его декодер. Индекс, а не ссылка:
+                    // за четверть секунды перетекания слои могли поменяться снова.
+                    RecycleLayer(1 - _frontIndex);
                 }))!
                 .Start();
         }
@@ -179,9 +230,11 @@ namespace PhotoFrame
         /// <summary>Плавно убирает видео, открывая снимок под ним.</summary>
         private void FadeOutEverything()
         {
-            foreach (Layer layer in _layers)
+            for (int layerIndex = 0; layerIndex < _layers.Length; layerIndex++)
             {
-                Layer captured = layer;
+                Layer captured = _layers[layerIndex];
+                int capturedIndex = layerIndex;
+
                 captured.View.Animate()!
                     .Alpha(0f)!
                     .SetDuration(CrossfadeMilliseconds)!
@@ -189,6 +242,7 @@ namespace PhotoFrame
                     {
                         captured.Player.Stop();
                         captured.Player.ClearMediaItems();
+                        RecycleLayer(capturedIndex);
                     }))!
                     .Start();
             }
