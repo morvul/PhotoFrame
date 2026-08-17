@@ -39,7 +39,13 @@ namespace PhotoFrame
         /// <summary>Список файлов в порядке показа. Пишется последним — это точка фиксации.</summary>
         private const string ManifestFileName = "immich.manifest";
 
-        private const string SignatureKey = "immich_signature";
+        /// <summary>
+        /// Отпечаток набора. В имени ключа стоит версия: с прибавлением столбцов
+        /// в списке (альбом, дата съёмки) прежний отпечаток означал бы «ничего не
+        /// изменилось», и полный проход, который только и заполняет новые столбцы,
+        /// не случился бы никогда.
+        /// </summary>
+        private const string SignatureKey = "immich_signature_v2";
 
         /// <summary>Ключ доступа передаётся этим заголовком — так описано в API Immich.</summary>
         private const string ApiKeyHeaderName = "x-api-key";
@@ -59,6 +65,12 @@ namespace PhotoFrame
         private const int MaxSearchPages = 50;
 
         private readonly HttpClient _httpClient;
+
+        /// <summary>
+        /// Из какого альбома пришёл объект. Заполняется при обходе альбомов и уходит
+        /// в список рядом с кэшем: сервер в самом объекте альбомов не перечисляет.
+        /// </summary>
+        private readonly Dictionary<string, string> _albumNameByAssetId = new(StringComparer.Ordinal);
 
         public ImmichPhotoSource()
         {
@@ -167,6 +179,8 @@ namespace PhotoFrame
             string serverUrl = FrameSettings.ImmichServerUrl;
             string apiKey = FrameSettings.ImmichApiKey;
 
+            _albumNameByAssetId.Clear();
+
             List<ImmichAsset> assets = await GetAssetsAsync(
                 serverUrl, apiKey, FrameSettings.ImmichAlbumIds, cancellationToken).ConfigureAwait(false);
 
@@ -237,14 +251,25 @@ namespace PhotoFrame
             var assets = new List<ImmichAsset>();
             var seenAssetIds = new HashSet<string>(StringComparer.Ordinal);
 
-            foreach (string albumId in albumIds)
+            string[] albumNames = FrameSettings.ImmichAlbumNames;
+
+            for (int albumIndex = 0; albumIndex < albumIds.Length; albumIndex++)
             {
+                string albumLabel = albumIndex < albumNames.Length
+                    ? albumNames[albumIndex]
+                    : albumIds[albumIndex];
+
                 foreach (ImmichAsset asset in await SearchAsync(
-                    serverUrl, apiKey, albumId, cancellationToken).ConfigureAwait(false))
+                    serverUrl, apiKey, albumIds[albumIndex], cancellationToken).ConfigureAwait(false))
                 {
                     if (seenAssetIds.Add(asset.Id))
                     {
                         assets.Add(asset);
+
+                        // Кадр подписывается альбомом, а он известен только здесь:
+                        // в самом объекте сервер альбомов не перечисляет. Первый
+                        // отмеченный альбом и выигрывает — снимок может лежать в двух.
+                        _albumNameByAssetId[asset.Id] = albumLabel;
                     }
                 }
             }
@@ -430,7 +455,10 @@ namespace PhotoFrame
 
             // Список пишется после файлов: подписи и клипы нужны только тем кадрам,
             // которые уже лежат в кэше.
-            ImmichSidecar.WriteIndex(assets, asset => BuildCacheFileName(asset.Id));
+            ImmichSidecar.WriteIndex(
+                assets,
+                asset => BuildCacheFileName(asset.Id),
+                asset => _albumNameByAssetId.GetValueOrDefault(asset.Id, string.Empty));
 
             return new AlbumSyncResult(
                 TotalPhotoCount: availableFileNames.Count,

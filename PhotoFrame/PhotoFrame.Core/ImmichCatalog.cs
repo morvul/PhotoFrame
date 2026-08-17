@@ -169,7 +169,13 @@ namespace PhotoFrame
                 albumFilter = $",\"albumIds\":[{string.Join(',', quotedIds)}]";
             }
 
-            return $"{{\"page\":{pageNumber},\"size\":{pageSize},\"withDeleted\":false{albumFilter}}}";
+            // withExif — иначе сервер не присылает съёмочные поля вовсе (проверено на
+            // рамке: столбцы даты и камеры в списке оставались пустыми), а других
+            // источников для них нет: рамка показывает превью, из которого EXIF вырезан.
+            return "{\"page\":" + pageNumber
+                + ",\"size\":" + pageSize
+                + ",\"withDeleted\":false,\"withExif\":true"
+                + albumFilter + "}";
         }
 
         /// <summary>Разбирает ответ /api/albums.</summary>

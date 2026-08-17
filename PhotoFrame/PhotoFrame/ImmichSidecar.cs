@@ -21,6 +21,10 @@ namespace PhotoFrame
     /// <param name="IsMotionPhoto">Живое фото: клип играется один раз и молча.</param>
     /// <param name="CameraName">Чем снято.</param>
     /// <param name="TakenAt">Когда снято.</param>
+    /// <param name="AlbumName">
+    /// Из какого альбома пришёл кадр; пусто, когда показывается вся библиотека и
+    /// альбом неизвестен.
+    /// </param>
     internal sealed record ImmichSlideInfo(
         string AssetId,
         string FileName,
@@ -28,7 +32,8 @@ namespace PhotoFrame
         int DurationMilliseconds,
         bool IsMotionPhoto,
         string CameraName,
-        DateTime? TakenAt);
+        DateTime? TakenAt,
+        string AlbumName);
 
     /// <summary>
     /// Хранит рядом с кэшем Immich то, чего в самих файлах нет.
@@ -73,7 +78,14 @@ namespace PhotoFrame
 
         /// <summary>Переписывает список по итогам синхронизации.</summary>
         /// <param name="cacheFileName">Как объект назван в кэше рамки.</param>
-        public static void WriteIndex(List<ImmichAsset> assets, Func<ImmichAsset, string> cacheFileName)
+        /// <param name="albumName">
+        /// Из какого альбома пришёл объект. Известно потому, что альбомы запрашиваются
+        /// по одному; при показе всей библиотеки — пусто.
+        /// </param>
+        public static void WriteIndex(
+            List<ImmichAsset> assets,
+            Func<ImmichAsset, string> cacheFileName,
+            Func<ImmichAsset, string> albumName)
         {
             var lines = new List<string>(assets.Count);
             int videoCount = 0;
@@ -106,6 +118,7 @@ namespace PhotoFrame
                     asset.DurationMilliseconds.ToString(CultureInfo.InvariantCulture),
                     asset.TakenAt?.ToString("O", CultureInfo.InvariantCulture) ?? string.Empty,
                     asset.CameraName,
+                    albumName(asset),
 
                     // Имя файла последним: в нём единственном возможны любые символы,
                     // и при разборе остаток строки берётся целиком.
@@ -144,7 +157,36 @@ namespace PhotoFrame
         /// кэш, набранный прежними версиями, о подписях и клипах ничего не знает, и без
         /// полного прохода кадры так и остались бы безымянными.
         /// </remarks>
-        public static bool HasIndex => File.Exists(IndexPath);
+        /// <remarks>
+        /// Список прежней версии, без столбца альбома, считается отсутствующим: иначе
+        /// кадры остались бы подписаны без альбома до первого изменения на сервере.
+        /// </remarks>
+        public static bool HasIndex
+        {
+            get
+            {
+                try
+                {
+                    if (!File.Exists(IndexPath))
+                    {
+                        return false;
+                    }
+
+                    using var reader = new StreamReader(IndexPath);
+                    string? firstLine = reader.ReadLine();
+
+                    // Пустой файл — это тоже «списка нет»: писать его заново дешевле,
+                    // чем разбираться, почему кадры без подписей.
+                    return firstLine is not null
+                           && firstLine.Split(FieldSeparator, 9).Length >= 9;
+                }
+                catch (Exception readFailure) when (
+                    readFailure is IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+            }
+        }
 
         /// <summary>Сведения о кадре либо null, если он не из Immich.</summary>
         public static ImmichSlideInfo? Find(string mediaPath)
@@ -200,12 +242,17 @@ namespace PhotoFrame
                     {
                         foreach (string line in File.ReadAllLines(IndexPath))
                         {
-                            // Восемь полей, последнее — имя файла целиком.
-                            string[] parts = line.Split(FieldSeparator, 8);
+                            // Девять полей, последнее — имя файла целиком. Строка из
+                            // восьми осталась от прежней версии, где не было альбома:
+                            // такую читаем как есть, а альбом подставится при следующей
+                            // синхронизации.
+                            string[] parts = line.Split(FieldSeparator, 9);
                             if (parts.Length < 8)
                             {
                                 continue;
                             }
+
+                            bool hasAlbumColumn = parts.Length >= 9;
 
                             int.TryParse(
                                 parts[4],
@@ -223,12 +270,13 @@ namespace PhotoFrame
 
                             parsed[parts[0]] = new ImmichSlideInfo(
                                 AssetId: parts[1],
-                                FileName: parts[7],
+                                FileName: hasAlbumColumn ? parts[8] : parts[7],
                                 ClipAssetId: parts[3],
                                 DurationMilliseconds: durationMilliseconds,
                                 IsMotionPhoto: parts[2].Equals(MotionKind, StringComparison.Ordinal),
                                 CameraName: parts[6],
-                                TakenAt: takenAt);
+                                TakenAt: takenAt,
+                                AlbumName: hasAlbumColumn ? parts[7] : string.Empty);
                         }
                     }
                 }

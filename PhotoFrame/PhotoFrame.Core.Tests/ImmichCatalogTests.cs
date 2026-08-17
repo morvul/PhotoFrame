@@ -205,13 +205,13 @@ namespace PhotoFrame.Core.Tests
         [Fact]
         public void BuildSearchRequestBody_WithoutAlbumSearchesWholeLibrary() =>
             Assert.Equal(
-                "{\"page\":3,\"size\":1000,\"withDeleted\":false}",
+                "{\"page\":3,\"size\":1000,\"withDeleted\":false,\"withExif\":true}",
                 ImmichCatalog.BuildSearchRequestBody(3, 1000));
 
         [Fact]
         public void BuildSearchRequestBody_WithAlbumFiltersByIt() =>
             Assert.Equal(
-                "{\"page\":1,\"size\":1000,\"withDeleted\":false,\"albumIds\":[\"0de6829f\"]}",
+                "{\"page\":1,\"size\":1000,\"withDeleted\":false,\"withExif\":true,\"albumIds\":[\"0de6829f\"]}",
                 ImmichCatalog.BuildSearchRequestBody(1, 1000, new[] { "0de6829f" }));
 
         /// <summary>
@@ -221,13 +221,13 @@ namespace PhotoFrame.Core.Tests
         [Fact]
         public void BuildSearchRequestBody_WithSeveralAlbumsListsThemAll() =>
             Assert.Equal(
-                "{\"page\":2,\"size\":500,\"withDeleted\":false,\"albumIds\":[\"one\",\"two\"]}",
+                "{\"page\":2,\"size\":500,\"withDeleted\":false,\"withExif\":true,\"albumIds\":[\"one\",\"two\"]}",
                 ImmichCatalog.BuildSearchRequestBody(2, 500, new[] { "one", "two" }));
 
         [Fact]
         public void BuildSearchRequestBody_WithEmptyAlbumListSearchesWholeLibrary() =>
             Assert.Equal(
-                "{\"page\":1,\"size\":1000,\"withDeleted\":false}",
+                "{\"page\":1,\"size\":1000,\"withDeleted\":false,\"withExif\":true}",
                 ImmichCatalog.BuildSearchRequestBody(1, 1000, Array.Empty<string>()));
     }
 }

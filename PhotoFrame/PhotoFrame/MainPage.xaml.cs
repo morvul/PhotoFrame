@@ -1580,7 +1580,11 @@ namespace PhotoFrame
             string frameLabel = MediaTrash.IsAlbumPhoto(mediaPath)
                 ? "Google Photos"
                 : immichSlide is not null
-                    ? "Immich/" + immichSlide.FileName
+                    // Альбом полезнее слова «Immich»: источник и так один на все эти
+                    // кадры, а альбом говорит, откуда снимок. Библиотеку целиком
+                    // подписывать нечем — тогда остаётся имя источника.
+                    ? (immichSlide.AlbumName.Length > 0 ? immichSlide.AlbumName : "Immich")
+                        + "/" + immichSlide.FileName
                     : MediaTrash.IsImmichPhoto(mediaPath)
                         // Список ещё не составлен — до ближайшей синхронизации у кадра
                         // есть только имя-хэш, и показывать его незачем.
@@ -1697,7 +1701,9 @@ namespace PhotoFrame
 
             if (captureInfo.TakenAt is { } takenAt)
             {
-                parts.Add(takenAt.ToString("d MMMM yyyy", CultureInfo.CurrentCulture));
+                // Со временем, а не только с датой: в один день снимков бывает много,
+                // и час съёмки как раз и отличает утреннюю прогулку от вечерней.
+                parts.Add(takenAt.ToString("d MMMM yyyy, HH:mm", CultureInfo.CurrentCulture));
             }
 
             _hasCaptureInfo = parts.Count > 0;
