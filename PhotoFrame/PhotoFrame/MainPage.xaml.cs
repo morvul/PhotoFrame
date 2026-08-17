@@ -653,10 +653,12 @@ namespace PhotoFrame
         /// </remarks>
         private static void ApplyScreenBrightness(bool nightMode)
         {
-            int brightnessPercent = FrameSettings.NightScreenBrightnessPercent;
+            int brightnessPercent = nightMode
+                ? FrameSettings.NightScreenBrightnessPercent
+                : FrameSettings.DayScreenBrightnessPercent;
 
             // 0 — пользователь не захотел, чтобы рамка трогала подсветку.
-            float brightness = nightMode && brightnessPercent > 0
+            float brightness = brightnessPercent > 0
                 ? Math.Clamp(brightnessPercent, 1, 100) / 100f
                 : -1f;
 
@@ -677,6 +679,66 @@ namespace PhotoFrame
                 System.Diagnostics.Debug.WriteLine(
                     $"Яркость экрана не изменена: {brightnessFailure.Message}");
             }
+        }
+
+        /// <summary>
+        /// Шаг подстройки взмахом. Десять шагов на всю шкалу: меньше — и до нужного
+        /// значения пришлось бы махать без конца, больше — и промахиваешься мимо него.
+        /// </summary>
+        private const int SwipeAdjustStep = 10;
+
+        /// <summary>Взмах вверх — ярче (ночью — заметнее цифры).</summary>
+        private void OnSwipeUp(object? sender, SwipedEventArgs e) => AdjustBySwipe(SwipeAdjustStep);
+
+        /// <summary>Взмах вниз — темнее.</summary>
+        private void OnSwipeDown(object? sender, SwipedEventArgs e) => AdjustBySwipe(-SwipeAdjustStep);
+
+        /// <summary>
+        /// Подстраивает яркость взмахом по экрану.
+        /// </summary>
+        /// <remarks>
+        /// Днём это подсветка, ночью — насыщенность цифр: подсветка ночью давно упёрлась
+        /// в свой предел (на рамке это около 8%), и дальше гасить можно только краской.
+        /// То есть взмах всегда делает ровно то, чего от него ждут, — «ярче» и «темнее»
+        /// для того, что сейчас на экране.
+        ///
+        /// Настройки при этом сохраняются: подобранное с дивана значение должно
+        /// пережить и ночь, и перезапуск.
+        /// </remarks>
+        private void AdjustBySwipe(int stepPercent)
+        {
+            if (_isNightModeActive == true)
+            {
+                // У насыщенности нет нуля: ноль означал бы невидимые часы.
+                int intensity = Math.Clamp(
+                    FrameSettings.NightClockIntensityPercent + stepPercent, 1, 100);
+
+                FrameSettings.NightClockIntensityPercent = intensity;
+
+                // Перерисовываем немедленно, иначе новое значение проявилось бы только
+                // со сменой минуты — до неё можно ждать минуту и решить, что не работает.
+                _lastRenderedNightMinute = null;
+                ShowToast($"Насыщенность цифр: {intensity} %");
+                return;
+            }
+
+            int brightness = FrameSettings.DayScreenBrightnessPercent;
+
+            // 0 значит «как в системе», и от него шагать некуда: начинаем с середины,
+            // чтобы первый же взмах дал видимый результат в нужную сторону.
+            if (brightness == 0)
+            {
+                brightness = stepPercent > 0 ? 50 + stepPercent : 50 + stepPercent;
+            }
+            else
+            {
+                brightness += stepPercent;
+            }
+
+            brightness = Math.Clamp(brightness, 1, 100);
+            FrameSettings.DayScreenBrightnessPercent = brightness;
+            ApplyScreenBrightness(nightMode: false);
+            ShowToast($"Яркость экрана: {brightness} %");
         }
 
         /// <summary>
@@ -1318,7 +1380,9 @@ namespace PhotoFrame
             // человеком, а неудачная загрузка — нет.
             if (syncResult.AvailableCount > syncResult.TotalPhotoCount)
             {
-                int photoLimit = FrameSettings.AlbumPhotoLimit;
+                // Пределы у источников свои, и виноват тот, чей превышен. Берём меньший
+                // из включённых: именно он обрежет набор первым.
+                int photoLimit = SmallestActivePhotoLimit();
 
                 statusText += photoLimit > 0 && syncResult.AvailableCount > photoLimit
                     ? $" из {syncResult.AvailableCount} в источнике (предел загрузки)"
@@ -1329,6 +1393,28 @@ namespace PhotoFrame
             return syncResult.Warning is null
                 ? statusText
                 : $"{statusText}. {syncResult.Warning}";
+        }
+
+        /// <summary>
+        /// Наименьший из пределов включённых сетевых источников; 0 — предела нет.
+        /// </summary>
+        private static int SmallestActivePhotoLimit()
+        {
+            int smallestLimit = 0;
+
+            if (FrameSettings.UseSharedAlbum && FrameSettings.AlbumPhotoLimit > 0)
+            {
+                smallestLimit = FrameSettings.AlbumPhotoLimit;
+            }
+
+            if (FrameSettings.UseImmich && FrameSettings.ImmichPhotoLimit > 0)
+            {
+                smallestLimit = smallestLimit == 0
+                    ? FrameSettings.ImmichPhotoLimit
+                    : Math.Min(smallestLimit, FrameSettings.ImmichPhotoLimit);
+            }
+
+            return smallestLimit;
         }
 
         /// <summary>

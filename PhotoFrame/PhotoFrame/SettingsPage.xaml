@@ -131,16 +131,28 @@
 
                         <Grid ColumnDefinitions="*,190" Margin="0,6,0,0">
                             <VerticalStackLayout Grid.Column="0">
-                                <Label Text="Что показывать" TextColor="White" FontSize="16" />
-                                <Label x:Name="ImmichStatusLabel"
-                                       Text="Вся библиотека либо один альбом"
-                                       TextColor="Gray" FontSize="13"
-                                       LineBreakMode="TailTruncation" MaxLines="2" />
+                                <Label Text="Скачивать не больше" TextColor="White" FontSize="16" />
+                                <Label Text="Свой предел: снимков на своём сервере обычно куда больше, чем в общем альбоме"
+                                       TextColor="Gray" FontSize="13" />
                             </VerticalStackLayout>
-                            <Picker Grid.Column="1" x:Name="ImmichAlbumPicker"
+                            <Picker Grid.Column="1" x:Name="ImmichLimitPicker"
                                     TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
                                     VerticalOptions="Center" />
                         </Grid>
+
+                        <Label Text="Что показывать" TextColor="White" FontSize="16" Margin="0,6,0,0" />
+                        <Label x:Name="ImmichStatusLabel"
+                               Text="Ничего не отмечено — покажем всю библиотеку"
+                               TextColor="Gray" FontSize="13"
+                               LineBreakMode="TailTruncation" MaxLines="2" />
+
+                        <!--
+                            Список альбомов с отметками, а не выпадающий список: альбомов
+                            выбирают сразу несколько — «Отпуск» вместе с «Детьми», но без
+                            сканов документов, — а Picker позволяет отметить лишь один.
+                            Строки появляются после запроса к серверу.
+                        -->
+                        <VerticalStackLayout x:Name="ImmichAlbumList" Spacing="6" Margin="0,4,0,0" />
 
                         <Button x:Name="ImmichAlbumsButton"
                                 Text="Проверить связь и получить альбомы"
@@ -258,6 +270,28 @@
                         <Switch Grid.Column="1" x:Name="ShuffleSwitch"
                                 OnColor="#4FC3F7" VerticalOptions="Center" />
                     </Grid>
+
+                    <!--
+                        Дневная яркость: у рамки нет ни своей кнопки, ни автоматики
+                        (датчик освещённости в прошивке заявлен, но показаний не даёт),
+                        поэтому подсветку задаёт приложение. То же значение меняется
+                        взмахом вверх-вниз прямо на кадре.
+                    -->
+                    <VerticalStackLayout Spacing="2">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label Grid.Column="0" Text="Яркость экрана днём"
+                                   TextColor="White" FontSize="16" />
+                            <Label Grid.Column="1" x:Name="DayBrightnessValueLabel"
+                                   TextColor="#4FC3F7" FontSize="16" />
+                        </Grid>
+                        <Label Text="0 — не трогать подсветку. Меняется и взмахом вверх-вниз по кадру"
+                               TextColor="Gray" FontSize="13" />
+                        <Slider x:Name="DayBrightnessSlider"
+                                Minimum="0" Maximum="100"
+                                ValueChanged="OnDayBrightnessChanged"
+                                MinimumTrackColor="#4FC3F7" MaximumTrackColor="#333333"
+                                ThumbColor="#4FC3F7" />
+                    </VerticalStackLayout>
 
                     <Grid ColumnDefinitions="*,Auto">
                         <VerticalStackLayout Grid.Column="0">
@@ -488,7 +522,7 @@
                             <Label Grid.Column="1" x:Name="NightIntensityValueLabel"
                                    TextColor="#4FC3F7" FontSize="16" />
                         </Grid>
-                        <Label Text="Сами цифры: этим их гасят, когда подсветка уже на пределе"
+                        <Label Text="Сами цифры: этим их гасят, когда подсветка уже на пределе. Ночью тем же взмахом вверх-вниз"
                                TextColor="Gray" FontSize="13" />
                         <Slider x:Name="NightIntensitySlider"
                                 Minimum="1" Maximum="100"

@@ -80,9 +80,11 @@ namespace PhotoFrame
                 return "Сервер или ключ не заданы";
             }
 
-            return FrameSettings.ImmichAlbumId.Length == 0
+            string[] albumNames = FrameSettings.ImmichAlbumNames;
+
+            return albumNames.Length == 0
                 ? "Вся библиотека"
-                : "Альбом: " + FrameSettings.ImmichAlbumName;
+                : "Альбомы: " + string.Join(", ", albumNames);
         }
 
         /// <inheritdoc />
@@ -166,7 +168,7 @@ namespace PhotoFrame
             string apiKey = FrameSettings.ImmichApiKey;
 
             List<ImmichAsset> assets = await GetAssetsAsync(
-                serverUrl, apiKey, FrameSettings.ImmichAlbumId, cancellationToken).ConfigureAwait(false);
+                serverUrl, apiKey, FrameSettings.ImmichAlbumIds, cancellationToken).ConfigureAwait(false);
 
             // Видео остаются в наборе: качается их заставка, а сам клип забирается,
             // когда слайд-шоу до кадра дойдёт, — см. ImmichVideoCache. Выключенная
@@ -189,7 +191,7 @@ namespace PhotoFrame
             // Тот же предел, что и для альбома Google, и по той же причине: каждый кадр —
             // это запрос и место на диске рамки.
             int availableCount = assets.Count;
-            int photoLimit = FrameSettings.AlbumPhotoLimit;
+            int photoLimit = FrameSettings.ImmichPhotoLimit;
 
             if (photoLimit > 0 && assets.Count > photoLimit)
             {
@@ -217,9 +219,9 @@ namespace PhotoFrame
         /// <summary>
         /// Объекты библиотеки либо одного альбома, страница за страницей.
         /// </summary>
-        /// <param name="albumId">Пусто — вся библиотека.</param>
+        /// <param name="albumIds">Пусто — вся библиотека.</param>
         private async Task<List<ImmichAsset>> GetAssetsAsync(
-            string serverUrl, string apiKey, string albumId, CancellationToken cancellationToken)
+            string serverUrl, string apiKey, string[] albumIds, CancellationToken cancellationToken)
         {
             var assets = new List<ImmichAsset>();
             string searchUrl = ImmichCatalog.BuildSearchUrl(serverUrl);
@@ -232,7 +234,7 @@ namespace PhotoFrame
                 using var request = new HttpRequestMessage(HttpMethod.Post, searchUrl)
                 {
                     Content = new StringContent(
-                        ImmichCatalog.BuildSearchRequestBody(pageNumber, SearchPageSize, albumId),
+                        ImmichCatalog.BuildSearchRequestBody(pageNumber, SearchPageSize, albumIds),
                         Encoding.UTF8,
                         "application/json"),
                 };
@@ -241,11 +243,11 @@ namespace PhotoFrame
                 assets.AddRange(ImmichCatalog.ParseSearchAssets(pageJson, out pageNumber));
             }
 
-            if (assets.Count == 0 && albumId.Length > 0)
+            if (assets.Count == 0 && albumIds.Length > 0)
             {
                 throw new PhotoSourceException(
-                    $"Альбом «{FrameSettings.ImmichAlbumName}» пуст либо больше не существует. " +
-                    "Выберите альбом заново в настройках (⚙).");
+                    $"Выбранные альбомы ({string.Join(", ", FrameSettings.ImmichAlbumNames)}) пусты "
+                    + "либо больше не существуют. Выберите их заново в настройках (⚙).");
             }
 
             return assets;

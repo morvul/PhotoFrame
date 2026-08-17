@@ -19,14 +19,20 @@ namespace PhotoFrame
         /// </summary>
         public static bool SyncRequestedOnReturn { get; set; }
 
-        /// <summary>Подпись первого пункта списка альбомов Immich.</summary>
-        private const string WholeLibraryChoice = "Вся библиотека";
-
         /// <summary>
         /// Альбомы, полученные с сервера Immich. Пусто, пока список не запрашивали:
         /// лезть в сеть при каждом открытии настроек ни к чему, обычно правят не это.
         /// </summary>
         private List<ImmichAlbum> _immichAlbums = new();
+
+        /// <summary>
+        /// Отмеченные альбомы. Пустое множество означает «вся библиотека» — отдельного
+        /// пункта для этого не нужно: снять все отметки и есть «показывать всё».
+        /// </summary>
+        private readonly HashSet<string> _selectedImmichAlbumIds = new(StringComparer.Ordinal);
+
+        /// <summary>Названия отмеченных альбомов — переживают закрытие настроек без сети.</summary>
+        private readonly Dictionary<string, string> _immichAlbumNames = new(StringComparer.Ordinal);
 
         public SettingsPage()
         {
@@ -37,6 +43,7 @@ namespace PhotoFrame
 
             PanelRevealPicker.ItemsSource = BuildPanelRevealChoices();
             AlbumLimitPicker.ItemsSource = BuildAlbumLimitChoices();
+            ImmichLimitPicker.ItemsSource = BuildAlbumLimitChoices();
 
             string[] hourChoices = BuildHourOfDayChoices();
             NightStartPicker.ItemsSource = hourChoices;
@@ -106,13 +113,31 @@ namespace PhotoFrame
             var choiceLabels = new string[FrameSettings.SlideshowIntervalChoices.Length];
             for (int choiceIndex = 0; choiceIndex < choiceLabels.Length; choiceIndex++)
             {
-                int seconds = FrameSettings.SlideshowIntervalChoices[choiceIndex];
-                choiceLabels[choiceIndex] = seconds < 60
-                    ? $"{seconds} сек"
-                    : $"{seconds / 60} мин";
+                choiceLabels[choiceIndex] =
+                    DescribeInterval(FrameSettings.SlideshowIntervalChoices[choiceIndex]);
             }
 
             return choiceLabels;
+        }
+
+        /// <summary>
+        /// Длительность показа словами. Часы отдельно от минут: «120 мин» рядом
+        /// с «60 мин» читается хуже, чем «2 часа» рядом с «1 час».
+        /// </summary>
+        private static string DescribeInterval(int seconds)
+        {
+            if (seconds < 60)
+            {
+                return $"{seconds} сек";
+            }
+
+            if (seconds < 3600)
+            {
+                return $"{seconds / 60} мин";
+            }
+
+            int hours = seconds / 3600;
+            return hours == 1 ? "1 час" : $"{hours} часа";
         }
 
         private static string[] BuildHoursChoices()
@@ -137,6 +162,31 @@ namespace PhotoFrame
 
             ImmichUrlEntry.Text = FrameSettings.ImmichServerUrl;
             ShowImmichApiKey();
+
+            // Выбор запоминается настройками, а список альбомов — нет: до запроса
+            // к серверу известны только те, что уже отмечены.
+            _selectedImmichAlbumIds.Clear();
+            _immichAlbumNames.Clear();
+
+            string[] savedAlbumIds = FrameSettings.ImmichAlbumIds;
+            string[] savedAlbumNames = FrameSettings.ImmichAlbumNames;
+
+            for (int albumIndex = 0; albumIndex < savedAlbumIds.Length; albumIndex++)
+            {
+                _selectedImmichAlbumIds.Add(savedAlbumIds[albumIndex]);
+                _immichAlbumNames[savedAlbumIds[albumIndex]] = albumIndex < savedAlbumNames.Length
+                    ? savedAlbumNames[albumIndex]
+                    : savedAlbumIds[albumIndex];
+            }
+
+            ImmichLimitPicker.SelectedIndex = Array.IndexOf(
+                FrameSettings.AlbumPhotoLimitChoices, FrameSettings.ImmichPhotoLimit);
+            if (ImmichLimitPicker.SelectedIndex < 0)
+            {
+                ImmichLimitPicker.SelectedIndex =
+                    Array.IndexOf(FrameSettings.AlbumPhotoLimitChoices, AppSettings.DefaultAlbumPhotoLimit);
+            }
+
             ShowImmichAlbumChoices();
 
             AlbumLimitPicker.SelectedIndex = Array.IndexOf(
@@ -174,6 +224,8 @@ namespace PhotoFrame
             NightColorPicker.SelectedIndex =
                 NightClockPalette.IndexOfHex(FrameSettings.NightClockColorHex);
 
+            DayBrightnessSlider.Value = FrameSettings.DayScreenBrightnessPercent;
+            ShowDayBrightness();
             NightBrightnessSlider.Value = FrameSettings.NightScreenBrightnessPercent;
             NightIntensitySlider.Value = FrameSettings.NightClockIntensityPercent;
             ShowNightBrightness();
@@ -209,6 +261,16 @@ namespace PhotoFrame
             }
 
             ShowDiagnostics();
+        }
+
+        private void OnDayBrightnessChanged(object? sender, ValueChangedEventArgs e) =>
+            ShowDayBrightness();
+
+        /// <summary>Ноль на дневной шкале означает «не трогать подсветку».</summary>
+        private void ShowDayBrightness()
+        {
+            int percent = (int)Math.Round(DayBrightnessSlider.Value);
+            DayBrightnessValueLabel.Text = percent == 0 ? "как в системе" : $"{percent} %";
         }
 
         private void OnNightBrightnessChanged(object? sender, ValueChangedEventArgs e) =>
@@ -547,40 +609,103 @@ namespace PhotoFrame
         }
 
         /// <summary>
-        /// Заполняет список альбомов Immich и выделяет в нём сохранённый выбор.
+        /// Перерисовывает список альбомов Immich с отметками.
         /// </summary>
         /// <remarks>
-        /// Пока альбомы не запрошены, в списке всё равно два пункта: вся библиотека и
-        /// уже выбранный альбом. Иначе открытие настроек без сети сбрасывало бы выбор
-        /// на «всю библиотеку» — то есть меняло бы поведение рамки молча.
+        /// Пока альбомы не запрошены, в списке всё равно видны уже отмеченные: иначе
+        /// открытие настроек без сети выглядело бы так, будто выбор потерян.
         /// </remarks>
         private void ShowImmichAlbumChoices()
         {
-            var choiceLabels = new List<string> { WholeLibraryChoice };
-            int selectedIndex = 0;
+            ImmichAlbumList.Clear();
+
+            List<(string Id, string Label)> rows = BuildImmichAlbumRows();
+
+            foreach ((string albumId, string albumLabel) in rows)
+            {
+                ImmichAlbumList.Add(BuildImmichAlbumRow(albumId, albumLabel));
+            }
+
+            ShowImmichSelectionSummary();
+        }
+
+        private List<(string Id, string Label)> BuildImmichAlbumRows()
+        {
+            var rows = new List<(string Id, string Label)>();
 
             if (_immichAlbums.Count > 0)
             {
-                for (int albumIndex = 0; albumIndex < _immichAlbums.Count; albumIndex++)
+                foreach (ImmichAlbum album in _immichAlbums)
                 {
-                    ImmichAlbum album = _immichAlbums[albumIndex];
-                    choiceLabels.Add($"{album.Name} ({album.AssetCount})");
-
-                    if (album.Id == FrameSettings.ImmichAlbumId)
-                    {
-                        selectedIndex = albumIndex + 1;
-                    }
+                    rows.Add((album.Id, $"{album.Name} ({album.AssetCount})"));
                 }
-            }
-            else if (FrameSettings.ImmichAlbumId.Length > 0)
-            {
-                choiceLabels.Add(FrameSettings.ImmichAlbumName);
-                selectedIndex = 1;
+
+                return rows;
             }
 
-            ImmichAlbumPicker.ItemsSource = choiceLabels;
-            ImmichAlbumPicker.SelectedIndex = selectedIndex;
+            foreach (string albumId in _selectedImmichAlbumIds)
+            {
+                rows.Add((albumId, _immichAlbumNames.GetValueOrDefault(albumId, albumId)));
+            }
+
+            return rows;
         }
+
+        /// <summary>Строка альбома: галочка у отмеченного, плюс у остальных.</summary>
+        private View BuildImmichAlbumRow(string albumId, string albumLabel)
+        {
+            bool isSelected = _selectedImmichAlbumIds.Contains(albumId);
+
+            var row = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(34) },
+                    new ColumnDefinition { Width = GridLength.Star },
+                },
+                Padding = new Thickness(0, 6),
+            };
+
+            row.Add(new Label
+            {
+                Text = isSelected ? "\u2713" : "+",
+                TextColor = isSelected ? Color.FromArgb("#4FC3F7") : Color.FromArgb("#555555"),
+                FontSize = 18,
+                VerticalOptions = LayoutOptions.Center,
+            });
+
+            row.Add(
+                new Label
+                {
+                    Text = albumLabel,
+                    TextColor = isSelected ? Colors.White : Colors.LightGray,
+                    FontSize = 16,
+                    LineBreakMode = LineBreakMode.TailTruncation,
+                    VerticalOptions = LayoutOptions.Center,
+                },
+                column: 1);
+
+            var tap = new TapGestureRecognizer();
+            tap.Tapped += (_, _) => ToggleImmichAlbum(albumId);
+            row.GestureRecognizers.Add(tap);
+
+            return row;
+        }
+
+        private void ToggleImmichAlbum(string albumId)
+        {
+            if (!_selectedImmichAlbumIds.Remove(albumId))
+            {
+                _selectedImmichAlbumIds.Add(albumId);
+            }
+
+            ShowImmichAlbumChoices();
+        }
+
+        private void ShowImmichSelectionSummary() =>
+            ImmichStatusLabel.Text = _selectedImmichAlbumIds.Count == 0
+                ? "Ничего не отмечено — покажем всю библиотеку"
+                : $"Отмечено альбомов: {_selectedImmichAlbumIds.Count}";
 
         /// <summary>
         /// Спрашивает у сервера список альбомов — заодно это и проверка связи с ключом.
@@ -609,14 +734,20 @@ namespace PhotoFrame
                     .GetAlbumsAsync(serverUrl, apiKey)
                     .ConfigureAwait(true);
 
+                foreach (ImmichAlbum album in _immichAlbums)
+                {
+                    _immichAlbumNames[album.Id] = album.Name;
+                }
+
                 // Адрес мог быть введён без схемы: показываем то, что реально пойдёт в запрос.
                 ImmichUrlEntry.Text = ImmichCatalog.NormalizeServerUrl(serverUrl);
 
                 ShowImmichAlbumChoices();
 
-                ImmichStatusLabel.Text = _immichAlbums.Count == 0
-                    ? "Связь есть, но альбомов нет — покажем всю библиотеку"
-                    : $"Связь есть, альбомов: {_immichAlbums.Count}";
+                if (_immichAlbums.Count == 0)
+                {
+                    ImmichStatusLabel.Text = "Связь есть, но альбомов нет — покажем всю библиотеку";
+                }
             }
             catch (PhotoSourceException immichFailure)
             {
@@ -628,29 +759,34 @@ namespace PhotoFrame
             }
         }
 
-        /// <summary>Переносит выбор в списке альбомов в настройки.</summary>
+        /// <summary>Переносит отметки на альбомах в настройки.</summary>
         private void ApplyImmichAlbumChoice()
         {
-            int selectedIndex = ImmichAlbumPicker.SelectedIndex;
+            var albumIds = new List<string>(_selectedImmichAlbumIds.Count);
+            var albumNames = new List<string>(_selectedImmichAlbumIds.Count);
 
-            // Первый пункт — вся библиотека, дальше идут альбомы в порядке списка.
-            if (selectedIndex <= 0)
+            // Порядок берём из списка сервера, если он получен: так подпись в настройках
+            // совпадает с тем, что человек только что видел на экране.
+            foreach (ImmichAlbum album in _immichAlbums)
             {
-                FrameSettings.ImmichAlbumId = string.Empty;
-                FrameSettings.ImmichAlbumName = string.Empty;
-                return;
+                if (_selectedImmichAlbumIds.Contains(album.Id))
+                {
+                    albumIds.Add(album.Id);
+                    albumNames.Add(album.Name);
+                }
             }
 
-            if (_immichAlbums.Count == 0)
+            foreach (string albumId in _selectedImmichAlbumIds)
             {
-                // Список не запрашивали: единственный доступный пункт — сохранённый
-                // раньше альбом, и трогать его не нужно.
-                return;
+                if (!albumIds.Contains(albumId))
+                {
+                    albumIds.Add(albumId);
+                    albumNames.Add(_immichAlbumNames.GetValueOrDefault(albumId, albumId));
+                }
             }
 
-            ImmichAlbum selectedAlbum = _immichAlbums[selectedIndex - 1];
-            FrameSettings.ImmichAlbumId = selectedAlbum.Id;
-            FrameSettings.ImmichAlbumName = selectedAlbum.Name;
+            FrameSettings.ImmichAlbumIds = albumIds.ToArray();
+            FrameSettings.ImmichAlbumNames = albumNames.ToArray();
         }
 
         private void ApplySettings()
@@ -662,6 +798,12 @@ namespace PhotoFrame
             FrameSettings.ImmichServerUrl = ImmichUrlEntry.Text ?? string.Empty;
             FrameSettings.ImmichApiKey = ImmichApiKeyEntry.Text ?? string.Empty;
             ApplyImmichAlbumChoice();
+
+            if (ImmichLimitPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.ImmichPhotoLimit =
+                    FrameSettings.AlbumPhotoLimitChoices[ImmichLimitPicker.SelectedIndex];
+            }
 
             FrameSettings.DownloadAlbumVideos = AlbumVideosSwitch.IsToggled;
             FrameSettings.AnimateMotionPhotos = MotionPhotosSwitch.IsToggled;
@@ -708,6 +850,7 @@ namespace PhotoFrame
                     NightClockPalette.Choices[NightColorPicker.SelectedIndex].Hex;
             }
 
+            FrameSettings.DayScreenBrightnessPercent = (int)Math.Round(DayBrightnessSlider.Value);
             FrameSettings.NightScreenBrightnessPercent = (int)Math.Round(NightBrightnessSlider.Value);
             FrameSettings.NightClockIntensityPercent = (int)Math.Round(NightIntensitySlider.Value);
 

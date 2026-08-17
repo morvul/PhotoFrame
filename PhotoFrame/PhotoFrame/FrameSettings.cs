@@ -24,6 +24,7 @@ namespace PhotoFrame
         private const string ImmichApiKeyKey = "immich_api_key";
         private const string ImmichAlbumIdKey = "immich_album_id";
         private const string ImmichAlbumNameKey = "immich_album_name";
+        private const string ImmichPhotoLimitKey = "immich_photo_limit";
         private const string SlideshowIntervalKey = "slideshow_interval_seconds";
         private const string PollIntervalKey = "poll_interval_hours";
         private const string ShuffleKey = "shuffle_photos";
@@ -33,6 +34,7 @@ namespace PhotoFrame
         private const string NightEndHourKey = "night_end_hour";
         private const string NightClockColorKey = "night_clock_color";
         private const string NightScreenBrightnessKey = "night_screen_brightness";
+        private const string DayScreenBrightnessKey = "day_screen_brightness";
         private const string NightClockIntensityKey = "night_clock_intensity";
         private const string ShowSensorsKey = "show_sensors";
         private const string SensorEntityIdsKey = "sensor_entity_ids";
@@ -51,8 +53,17 @@ namespace PhotoFrame
         private const string LaunchOnBootDelayKey = "launch_on_boot_delay_seconds";
         private const string TrashedAlbumFilesKey = "trashed_album_files";
 
-        /// <summary>Варианты длительности показа одного кадра, секунды.</summary>
-        public static readonly int[] SlideshowIntervalChoices = { 5, 10, 15, 30, 60, 300 };
+        /// <summary>
+        /// Варианты длительности показа одного кадра, секунды.
+        /// </summary>
+        /// <remarks>
+        /// Верхние значения — для комнаты, где рамка висит как картина: кадр, меняющийся
+        /// раз в пару часов, воспринимается именно картиной, а не слайд-шоу.
+        /// </remarks>
+        public static readonly int[] SlideshowIntervalChoices =
+        {
+            5, 10, 15, 30, 60, 300, 600, 1800, 3600, 7200,
+        };
 
         /// <summary>Варианты периода проверки альбома, часы.</summary>
         public static readonly int[] PollIntervalChoices = { 1, 3, 6, 12, 24 };
@@ -143,21 +154,50 @@ namespace PhotoFrame
             set => Preferences.Default.Set(ImmichApiKeyKey, value?.Trim() ?? string.Empty);
         }
 
-        /// <summary>Идентификатор выбранного альбома; пусто — вся библиотека.</summary>
-        public static string ImmichAlbumId
+        /// <summary>
+        /// Идентификаторы выбранных альбомов; пусто — вся библиотека.
+        /// </summary>
+        /// <remarks>
+        /// Список, а не один альбом: сервер принимает несколько идентификаторов одним
+        /// запросом, а на рамке обычно и хотят видеть сразу несколько — «Отпуск» вместе
+        /// с «Детьми», но без сканов документов. Хранится строками через перевод строки,
+        /// как и список папок.
+        /// </remarks>
+        public static string[] ImmichAlbumIds
         {
-            get => Preferences.Default.Get(ImmichAlbumIdKey, string.Empty);
-            set => Preferences.Default.Set(ImmichAlbumIdKey, value ?? string.Empty);
+            get => SplitLines(Preferences.Default.Get(ImmichAlbumIdKey, string.Empty));
+            set => Preferences.Default.Set(
+                ImmichAlbumIdKey, value is null ? string.Empty : string.Join('\n', value));
         }
 
         /// <summary>
-        /// Название выбранного альбома — только для показа в настройках: запрашивать
-        /// ради одной подписи весь список альбомов было бы расточительно.
+        /// Названия выбранных альбомов, по одному на строку и в том же порядке, что
+        /// и идентификаторы, — только для показа в настройках: запрашивать ради подписи
+        /// весь список альбомов было бы расточительно.
         /// </summary>
-        public static string ImmichAlbumName
+        public static string[] ImmichAlbumNames
         {
-            get => Preferences.Default.Get(ImmichAlbumNameKey, string.Empty);
-            set => Preferences.Default.Set(ImmichAlbumNameKey, value ?? string.Empty);
+            get => SplitLines(Preferences.Default.Get(ImmichAlbumNameKey, string.Empty));
+            set => Preferences.Default.Set(
+                ImmichAlbumNameKey, value is null ? string.Empty : string.Join('\n', value));
+        }
+
+        private static string[] SplitLines(string storedValue) =>
+            storedValue.Split(
+                '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        /// <summary>
+        /// Предел на число кадров, скачиваемых из Immich; 0 — без предела.
+        /// </summary>
+        /// <remarks>
+        /// Свой, а не общий с альбомом Google: у своего сервера снимков обычно на порядок
+        /// больше, чем в расшаренном альбоме, и один предел на двоих означал бы, что
+        /// удобное для одного источника калечит другой.
+        /// </remarks>
+        public static int ImmichPhotoLimit
+        {
+            get => Preferences.Default.Get(ImmichPhotoLimitKey, AppSettings.DefaultAlbumPhotoLimit);
+            set => Preferences.Default.Set(ImmichPhotoLimitKey, value);
         }
 
         /// <summary>True, если Immich можно опрашивать: есть и адрес, и ключ.</summary>
@@ -247,6 +287,20 @@ namespace PhotoFrame
         {
             get => Preferences.Default.Get(NightModeKey, true);
             set => Preferences.Default.Set(NightModeKey, value);
+        }
+
+        /// <summary>
+        /// Яркость подсветки днём, проценты; 0 — не трогать.
+        /// </summary>
+        /// <remarks>
+        /// Отдельно от ночной: рамка на солнце и рамка в сумерках требуют разного, а
+        /// системную яркость на этом устройстве не выставить — своей кнопки нет, и
+        /// автоматики тоже (датчик освещённости в прошивке заявлен, но не работает).
+        /// </remarks>
+        public static int DayScreenBrightnessPercent
+        {
+            get => Preferences.Default.Get(DayScreenBrightnessKey, 0);
+            set => Preferences.Default.Set(DayScreenBrightnessKey, Math.Clamp(value, 0, 100));
         }
 
         /// <summary>Час начала ночного режима.</summary>

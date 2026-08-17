@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using PhotoFrame;
 using Xunit;
@@ -211,6 +212,22 @@ namespace PhotoFrame.Core.Tests
         public void BuildSearchRequestBody_WithAlbumFiltersByIt() =>
             Assert.Equal(
                 "{\"page\":1,\"size\":1000,\"withDeleted\":false,\"albumIds\":[\"0de6829f\"]}",
-                ImmichCatalog.BuildSearchRequestBody(1, 1000, "0de6829f"));
+                ImmichCatalog.BuildSearchRequestBody(1, 1000, new[] { "0de6829f" }));
+
+        /// <summary>
+        /// Несколько альбомов уходят одним запросом: обходить их по очереди значило бы
+        /// ещё и вычищать снимки, попавшие сразу в два.
+        /// </summary>
+        [Fact]
+        public void BuildSearchRequestBody_WithSeveralAlbumsListsThemAll() =>
+            Assert.Equal(
+                "{\"page\":2,\"size\":500,\"withDeleted\":false,\"albumIds\":[\"one\",\"two\"]}",
+                ImmichCatalog.BuildSearchRequestBody(2, 500, new[] { "one", "two" }));
+
+        [Fact]
+        public void BuildSearchRequestBody_WithEmptyAlbumListSearchesWholeLibrary() =>
+            Assert.Equal(
+                "{\"page\":1,\"size\":1000,\"withDeleted\":false}",
+                ImmichCatalog.BuildSearchRequestBody(1, 1000, Array.Empty<string>()));
     }
 }

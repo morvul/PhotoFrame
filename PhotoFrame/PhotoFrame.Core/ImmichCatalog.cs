@@ -148,12 +148,26 @@ namespace PhotoFrame
         /// Тип объектов намеренно не ограничивается: видео нужно посчитать, чтобы
         /// сказать, сколько их пропущено, а отфильтрованных сервером не увидеть.
         /// </remarks>
-        /// <param name="albumId">Пусто — искать по всей библиотеке.</param>
-        public static string BuildSearchRequestBody(int pageNumber, int pageSize, string? albumId = null)
+        /// <param name="albumIds">
+        /// Пусто — искать по всей библиотеке. Несколько альбомов сервер принимает одним
+        /// запросом, поэтому обходить их по очереди и сшивать выдачу не нужно — заодно
+        /// не приходится и вычищать снимки, попавшие сразу в два альбома.
+        /// </param>
+        public static string BuildSearchRequestBody(
+            int pageNumber, int pageSize, IReadOnlyList<string>? albumIds = null)
         {
-            string albumFilter = string.IsNullOrEmpty(albumId)
-                ? string.Empty
-                : $",\"albumIds\":[\"{albumId}\"]";
+            string albumFilter = string.Empty;
+
+            if (albumIds is { Count: > 0 })
+            {
+                var quotedIds = new List<string>(albumIds.Count);
+                foreach (string albumId in albumIds)
+                {
+                    quotedIds.Add($"\"{albumId}\"");
+                }
+
+                albumFilter = $",\"albumIds\":[{string.Join(',', quotedIds)}]";
+            }
 
             return $"{{\"page\":{pageNumber},\"size\":{pageSize},\"withDeleted\":false{albumFilter}}}";
         }

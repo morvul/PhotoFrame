@@ -36,6 +36,15 @@
             <Grid.GestureRecognizers>
                 <TapGestureRecognizer NumberOfTapsRequired="2" Tapped="OnDoubleTapped" />
                 <TapGestureRecognizer Tapped="OnScreenTapped" />
+
+                <!--
+                    Взмах вверх и вниз подстраивает яркость прямо на кадре: днём —
+                    подсветку, ночью — насыщенность цифр. У рамки нет ни кнопок
+                    громкости, ни шторки, а подбирать такое значение удобнее глядя
+                    на сам экран, а не на ползунок в настройках.
+                -->
+                <SwipeGestureRecognizer Direction="Up" Swiped="OnSwipeUp" />
+                <SwipeGestureRecognizer Direction="Down" Swiped="OnSwipeDown" />
             </Grid.GestureRecognizers>
         </Grid>
 
