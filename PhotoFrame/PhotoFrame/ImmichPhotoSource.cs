@@ -223,8 +223,49 @@ namespace PhotoFrame
         private async Task<List<ImmichAsset>> GetAssetsAsync(
             string serverUrl, string apiKey, string[] albumIds, CancellationToken cancellationToken)
         {
+            if (albumIds.Length == 0)
+            {
+                return await SearchAsync(serverUrl, apiKey, albumId: null, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            // По одному альбому за запрос, а не все идентификаторы разом: проверено на
+            // рамке — с одним альбомом выдача приходит, с двумя пуста. Похоже, сервер
+            // понимает список как «снимок во всех этих альбомах сразу», а нужно
+            // «в любом из них». Отсюда и склейка своими руками, и отсев повторов:
+            // снимок вполне может лежать в двух отмеченных альбомах.
+            var assets = new List<ImmichAsset>();
+            var seenAssetIds = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (string albumId in albumIds)
+            {
+                foreach (ImmichAsset asset in await SearchAsync(
+                    serverUrl, apiKey, albumId, cancellationToken).ConfigureAwait(false))
+                {
+                    if (seenAssetIds.Add(asset.Id))
+                    {
+                        assets.Add(asset);
+                    }
+                }
+            }
+
+            if (assets.Count == 0)
+            {
+                throw new PhotoSourceException(
+                    $"Выбранные альбомы ({string.Join(", ", FrameSettings.ImmichAlbumNames)}) пусты "
+                    + "либо больше не существуют. Выберите их заново в настройках (⚙).");
+            }
+
+            return assets;
+        }
+
+        /// <summary>Постраничный поиск: по одному альбому либо по всей библиотеке.</summary>
+        private async Task<List<ImmichAsset>> SearchAsync(
+            string serverUrl, string apiKey, string? albumId, CancellationToken cancellationToken)
+        {
             var assets = new List<ImmichAsset>();
             string searchUrl = ImmichCatalog.BuildSearchUrl(serverUrl);
+            string[]? albumFilter = albumId is null ? null : new[] { albumId };
             int pageNumber = 1;
 
             for (int pageIndex = 0; pageIndex < MaxSearchPages && pageNumber > 0; pageIndex++)
@@ -234,7 +275,7 @@ namespace PhotoFrame
                 using var request = new HttpRequestMessage(HttpMethod.Post, searchUrl)
                 {
                     Content = new StringContent(
-                        ImmichCatalog.BuildSearchRequestBody(pageNumber, SearchPageSize, albumIds),
+                        ImmichCatalog.BuildSearchRequestBody(pageNumber, SearchPageSize, albumFilter),
                         Encoding.UTF8,
                         "application/json"),
                 };
@@ -243,13 +284,7 @@ namespace PhotoFrame
                 assets.AddRange(ImmichCatalog.ParseSearchAssets(pageJson, out pageNumber));
             }
 
-            if (assets.Count == 0 && albumIds.Length > 0)
-            {
-                throw new PhotoSourceException(
-                    $"Выбранные альбомы ({string.Join(", ", FrameSettings.ImmichAlbumNames)}) пусты "
-                    + "либо больше не существуют. Выберите их заново в настройках (⚙).");
-            }
-
+            FrameLog.Info($"Immich: альбом {albumId ?? "вся библиотека"} — объектов {assets.Count}");
             return assets;
         }
 
