@@ -9,9 +9,21 @@
              Shell.TabBarIsVisible="False">
 
     <Grid>
-        <!-- Слой слайд-шоу на весь экран. Aspect задаётся из настроек. -->
+        <!--
+            Слайд-шоу в два слоя. Верхний проявляется поверх нижнего, и наоборот, —
+            так между кадрами не мелькает чёрный экран: пока новый снимок не готов,
+            на виду остаётся прежний. Кадры отдаются платформенному ImageView готовыми
+            (см. PhotoFrameDecoder), потому что Source в MAUI грузится асинхронно и
+            на это время гасит картинку — ровно то мигание, от которого и уходим.
+        -->
         <Image x:Name="SlideshowImage"
                Aspect="AspectFit"
+               HorizontalOptions="Fill"
+               VerticalOptions="Fill" />
+
+        <Image x:Name="SlideshowImageTop"
+               Aspect="AspectFit"
+               Opacity="0"
                HorizontalOptions="Fill"
                VerticalOptions="Fill" />
 

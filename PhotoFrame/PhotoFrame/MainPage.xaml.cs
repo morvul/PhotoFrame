@@ -198,6 +198,23 @@ namespace PhotoFrame
         /// <summary>До этого момента живые фото не оживляем; null — можно.</summary>
         private DateTime? _motionBackoffUntil;
 
+        /// <summary>Сейчас на виду верхний слой слайд-шоу.</summary>
+        private bool _slideInTopLayer;
+
+        /// <summary>Кадры, лежащие в слоях: их надо освобождать при замене.</summary>
+        private Android.Graphics.Bitmap? _bottomSlideFrame;
+
+        private Android.Graphics.Bitmap? _topSlideFrame;
+
+        /// <summary>
+        /// Сколько длится переход между кадрами.
+        /// </summary>
+        /// <remarks>
+        /// Четверть секунды: смена читается как смена, но не как рывок. Столько же
+        /// длится перетекание у видео, чтобы кадр и клип вели себя одинаково.
+        /// </remarks>
+        private const uint SlideCrossfadeMilliseconds = 250;
+
         /// <summary>
         /// Живое фото крутится по кругу, пока не выключат.
         /// </summary>
@@ -517,6 +534,7 @@ namespace PhotoFrame
                 TimeSpan.FromSeconds(FrameSettings.PanelRevealSeconds).TotalMilliseconds;
 
             SlideshowImage.Aspect = FrameSettings.FillScreen ? Aspect.AspectFill : Aspect.AspectFit;
+            SlideshowImageTop.Aspect = SlideshowImage.Aspect;
 
             // Панель всегда скрыта при возврате на экран: поверх фотографии не должно
             // быть ничего лишнего, а показывается она касанием.
@@ -1323,7 +1341,7 @@ namespace PhotoFrame
 
             if (_localPhotoPaths.Count == 0)
             {
-                SlideshowImage.Source = null;
+                ClearSlideLayers();
                 _hasCaptureInfo = false;
                 _isCurrentSlideVideo = false;
                 _currentPhotoIndex = -1;
@@ -1667,7 +1685,7 @@ namespace PhotoFrame
 
             if (!_isCurrentSlideVideo)
             {
-                SlideshowImage.Source = ImageSource.FromFile(mediaPath);
+                _ = ShowSlideFrameAsync(mediaPath, photoGeneration);
 
                 if (FrameSettings.ShowClock)
                 {
@@ -1704,7 +1722,7 @@ namespace PhotoFrame
 
             // У видео нет готовой картинки, поэтому показываем кадр из него самого:
             // он виден, пока проигрыватель готовится, и остаётся фоном при ошибке.
-            SlideshowImage.Source = null;
+            ClearSlideLayers();
             _ = ShowVideoPosterAsync(mediaPath, photoGeneration);
 
             // Видео начинается само, как только слайд-шоу до него дошло, и по окончании
@@ -1713,6 +1731,78 @@ namespace PhotoFrame
             {
                 StartVideoPlayback();
             }
+        }
+
+        /// <summary>
+        /// Показывает снимок, проявляя его поверх предыдущего.
+        /// </summary>
+        /// <remarks>
+        /// Кадр читается в фоне и уже готовым отдаётся свободному слою, после чего слои
+        /// перетекают друг в друга. Пока чтение идёт, на экране остаётся прежний
+        /// снимок — раньше на его месте был чёрный экран.
+        /// </remarks>
+        private async Task ShowSlideFrameAsync(string photoPath, int photoGeneration)
+        {
+            Android.Graphics.Bitmap? frame = await Task.Run(() => PhotoFrameDecoder.Decode(
+                    photoPath, AppSettings.FrameWidthPixels, AppSettings.FrameHeightPixels))
+                .ConfigureAwait(true);
+
+            if (frame is null)
+            {
+                // Нечитаемый файл: на экране остаётся прежний кадр, а показ идёт дальше.
+                FrameLog.Warn($"Кадр не показан: {photoPath}");
+                return;
+            }
+
+            // Слайд успел смениться, пока читали, — этот кадр уже не нужен.
+            if (photoGeneration != _photoGeneration)
+            {
+                ReleaseFrame(frame);
+                return;
+            }
+
+            bool intoTopLayer = !_slideInTopLayer;
+            Image targetLayer = intoTopLayer ? SlideshowImageTop : SlideshowImage;
+
+            if (!TrySetLayerFrame(targetLayer, frame))
+            {
+                // Обработчик ещё не создан — покажем следующий кадр, этот освобождаем.
+                ReleaseFrame(frame);
+                return;
+            }
+
+            if (intoTopLayer)
+            {
+                ReleaseFrame(_topSlideFrame, frame);
+                _topSlideFrame = frame;
+            }
+            else
+            {
+                ReleaseFrame(_bottomSlideFrame, frame);
+                _bottomSlideFrame = frame;
+            }
+
+            _slideInTopLayer = intoTopLayer;
+
+            // Прозрачность меняется только у верхнего слоя: нижний всегда виден под ним.
+            await SlideshowImageTop.FadeToAsync(
+                intoTopLayer ? 1 : 0, SlideCrossfadeMilliseconds).ConfigureAwait(true);
+        }
+
+        /// <summary>Убирает снимок с экрана вместе с его кадрами.</summary>
+        private void ClearSlideLayers()
+        {
+            SlideshowImageTop.Opacity = 0;
+
+            DetachLayer(SlideshowImage);
+            DetachLayer(SlideshowImageTop);
+
+            ReleaseFrame(_bottomSlideFrame);
+            ReleaseFrame(_topSlideFrame, keepIfSame: _bottomSlideFrame);
+
+            _bottomSlideFrame = null;
+            _topSlideFrame = null;
+            _slideInTopLayer = false;
         }
 
         /// <summary>
@@ -2034,7 +2124,7 @@ namespace PhotoFrame
                 return;
             }
 
-            SlideshowImage.Source = ImageSource.FromFile(posterPath);
+            await ShowSlideFrameAsync(posterPath, photoGeneration).ConfigureAwait(true);
 
             if (FrameSettings.ShowClock)
             {
