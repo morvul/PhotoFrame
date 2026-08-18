@@ -220,6 +220,9 @@ namespace PhotoFrame
         /// <summary>Сейчас двоеточие погашено.</summary>
         private bool _nightColonHidden;
 
+        /// <summary>Показания датчиков, попавшие в нарисованный кадр часов.</summary>
+        private string? _renderedSensorText;
+
         /// <summary>Обновление ночных часов уже идёт.</summary>
         private bool _nightRefreshRunning;
 
@@ -542,9 +545,11 @@ namespace PhotoFrame
                     SetOutlinedText(_sensorLabels, _sensorLineText);
                     SensorHost.IsVisible = _isNightModeActive != true;
 
-                    // Ночью показания входят в сам кадр часов, поэтому его нужно
-                    // перерисовать: минута та же, а значения уже другие.
-                    if (_isNightModeActive == true)
+                    // Ночью показания входят в сам кадр часов. Обычно они приходят
+                    // до отрисовки — её для этого и придерживают, — и тогда
+                    // перерисовывать нечего. Но если ответ опоздал, значения в кадре
+                    // остались бы прошлыми до следующей минуты.
+                    if (_isNightModeActive == true && _sensorLineText != _renderedSensorText)
                     {
                         _lastRenderedNightMinute = null;
                         UpdateClock();
@@ -632,17 +637,21 @@ namespace PhotoFrame
 
             // Значения датчиков обновляются вместе с показанным временем: раз в минуту,
             // а не по отдельному расписанию, из-за которого они выглядели устаревшими.
-            if (_lastSensorMinute != formattedTime)
+            bool minuteChanged = _lastSensorMinute != formattedTime;
+            if (minuteChanged)
             {
                 _lastSensorMinute = formattedTime;
-                _ = RefreshSensorsAsync();
             }
 
             ApplyNightMode(localNow);
 
             if (_isNightModeActive == true)
             {
-                _ = RefreshNightClockAsync(formattedTime, formattedDate);
+                _ = RefreshNightClockWithSensorsAsync(formattedTime, formattedDate, minuteChanged);
+            }
+            else if (minuteChanged)
+            {
+                _ = RefreshSensorsAsync();
             }
         }
 
@@ -879,6 +888,10 @@ namespace PhotoFrame
                 // Датчики показываются и ночью, но только если их вообще просили показывать.
                 string? sensorText = FrameSettings.ShowSensors ? _sensorLineText : null;
 
+                // Что нарисовано, то и запоминаем: по этому опоздавший ответ датчиков
+                // и понимает, нужна ли ещё одна отрисовка.
+                _renderedSensorText = _sensorLineText;
+
                 int intensityPercent = FrameSettings.NightClockIntensityPercent;
 
                 // Рисуем в кадр незанятого слоя: он уже отцеплен от своего ImageView,
@@ -1089,6 +1102,37 @@ namespace PhotoFrame
         }
 
         /// <summary>Убирает ночные часы с экрана и освобождает оба кадра.</summary>
+        /// <summary>
+        /// Сколько ждать показания датчиков, прежде чем рисовать часы без них.
+        /// </summary>
+        /// <remarks>
+        /// Home Assistant стоит в той же сети и отвечает быстро, но если он выключен,
+        /// часы не должны из-за этого стоять на прошлой минуте.
+        /// </remarks>
+        private const int SensorWaitBeforeDrawMilliseconds = 2000;
+
+        /// <summary>
+        /// Обновляет ночные часы, сперва дождавшись показаний датчиков.
+        /// </summary>
+        /// <remarks>
+        /// Показания входят в сам кадр часов, поэтому порядок важен: раньше кадр
+        /// рисовался сразу, а секундой позже приходили датчики и заставляли рисовать
+        /// его заново — за минуту выходило два перетекания вместо одного.
+        /// </remarks>
+        private async Task RefreshNightClockWithSensorsAsync(
+            string formattedTime, string formattedDate, bool refreshSensors)
+        {
+            if (refreshSensors && FrameSettings.ShowSensors)
+            {
+                await Task.WhenAny(
+                        RefreshSensorsAsync(),
+                        Task.Delay(SensorWaitBeforeDrawMilliseconds))
+                    .ConfigureAwait(true);
+            }
+
+            await RefreshNightClockAsync(formattedTime, formattedDate).ConfigureAwait(true);
+        }
+
         /// <summary>
         /// Перерисовывает ночные часы немедленно, тем же временем, что и сейчас.
         /// </summary>
