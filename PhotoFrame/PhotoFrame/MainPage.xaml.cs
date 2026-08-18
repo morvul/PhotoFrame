@@ -864,11 +864,25 @@ namespace PhotoFrame
             {
                 ReleaseFrame(_frontNightFrame, renderedFrame);
                 _frontNightFrame = renderedFrame;
+
+                // Рисовали, скорее всего, поверх кадра противоположного слоя — тогда
+                // оба поля указывали бы на один Bitmap. Проверено дорого: на утреннем
+                // переходе его освобождали дважды, и второй раз падал
+                // ObjectDisposedException, роняя приложение.
+                if (ReferenceEquals(_backNightFrame, renderedFrame))
+                {
+                    _backNightFrame = null;
+                }
             }
             else
             {
                 ReleaseFrame(_backNightFrame, renderedFrame);
                 _backNightFrame = renderedFrame;
+
+                if (ReferenceEquals(_frontNightFrame, renderedFrame))
+                {
+                    _frontNightFrame = null;
+                }
             }
 
             // Прежний слой только отцепляем: его кадр пригодится через минуту.
@@ -912,8 +926,23 @@ namespace PhotoFrame
                 return;
             }
 
-            frame.Recycle();
-            frame.Dispose();
+            try
+            {
+                // IsRecycled тоже обращается к объекту Java, поэтому и он под защитой.
+                if (!frame.IsRecycled)
+                {
+                    frame.Recycle();
+                }
+
+                frame.Dispose();
+            }
+            catch (Exception releaseFailure) when (
+                releaseFailure is ObjectDisposedException or Java.Lang.Throwable)
+            {
+                // Кадр уже освобождён — это не повод падать: показ ночных часов
+                // важнее аккуратности учёта, а память вернёт сборщик.
+                FrameLog.Warn($"Кадр часов уже освобождён: {releaseFailure.Message}");
+            }
         }
 
         /// <summary>Убирает ночные часы с экрана и освобождает оба кадра.</summary>
@@ -923,7 +952,10 @@ namespace PhotoFrame
             DetachLayer(NightClockBackImage);
 
             ReleaseFrame(_frontNightFrame);
-            ReleaseFrame(_backNightFrame);
+
+            // keepIfSame — та же страховка от одного кадра в двух полях: рисуем мы
+            // поверх кадра свободного слоя, и они могут совпасть.
+            ReleaseFrame(_backNightFrame, keepIfSame: _frontNightFrame);
 
             _frontNightFrame = null;
             _backNightFrame = null;
