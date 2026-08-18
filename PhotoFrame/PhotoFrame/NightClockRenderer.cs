@@ -59,6 +59,12 @@ namespace PhotoFrame
         /// в нём. Каждая минута — это 1280x800x4 байта, и на устройстве с гигабайтом
         /// памяти выделять их заново всю ночь ни к чему.
         /// </param>
+        /// <param name="showColon">
+        /// Рисовать ли двоеточие между часами и минутами. Страница гасит его через
+        /// секунду и зажигает снова: иначе по неподвижным часам не понять, идут они
+        /// или рамка давно замерла. Цифры при этом не смещаются — каждая часть строки
+        /// рисуется на своём месте.
+        /// </param>
         /// <param name="intensityPercent">
         /// Насыщенность рисунка в процентах; 0 — в полную силу. Нужна потому, что
         /// подсветка упирается в свой предел: на рамке это 20 из 255, около 8%, и в
@@ -73,7 +79,8 @@ namespace PhotoFrame
             bool phaseShifted,
             string colorHex,
             int intensityPercent,
-            Bitmap? reusableFrame = null)
+            Bitmap? reusableFrame = null,
+            bool showColon = true)
         {
             // Пригодный кадр переиспользуем: фон всё равно заливается чёрным целиком,
             // так что от прошлой минуты ничего не просвечивает.
@@ -138,7 +145,7 @@ namespace PhotoFrame
                 (heightPixels - dateBlockHeight - sensorBlockHeight) / 2f
                 + timeBounds.Height() / 2f;
 
-            canvas.DrawText(timeText, centreX, timeBaselineY, textPaint);
+            DrawTime(canvas, textPaint, timeText, centreX, timeBaselineY, showColon);
 
             textPaint.SetTypeface(Typeface.Create(Typeface.Default, TypefaceStyle.Normal));
 
@@ -162,6 +169,58 @@ namespace PhotoFrame
             }
 
             return frame;
+        }
+
+        /// <summary>
+        /// Рисует время, при необходимости без двоеточия.
+        /// </summary>
+        /// <remarks>
+        /// Строка рисуется по частям, а не целиком: убрать двоеточие из целой строки
+        /// значило бы сдвинуть минуты влево, и часы дёргались бы каждую секунду.
+        /// Части ставятся по своим отступам, поэтому пропавшее двоеточие оставляет
+        /// на своём месте ровно пустоту.
+        /// </remarks>
+        private static void DrawTime(
+            Canvas canvas,
+            AndroidPaint textPaint,
+            string timeText,
+            float centreX,
+            float baselineY,
+            bool showColon)
+        {
+            int separatorIndex = timeText.IndexOf(':');
+
+            if (separatorIndex <= 0 || separatorIndex >= timeText.Length - 1)
+            {
+                // Двоеточия нет вовсе — рисуем как есть.
+                canvas.DrawText(timeText, centreX, baselineY, textPaint);
+                return;
+            }
+
+            string hoursText = timeText[..separatorIndex];
+            string separatorText = timeText[separatorIndex].ToString();
+            string minutesText = timeText[(separatorIndex + 1)..];
+
+            float hoursWidth = textPaint.MeasureText(hoursText);
+            float separatorWidth = textPaint.MeasureText(separatorText);
+            float minutesWidth = textPaint.MeasureText(minutesText);
+
+            AndroidPaint.Align previousAlign = textPaint.TextAlign;
+            textPaint.TextAlign = AndroidPaint.Align.Left!;
+
+            float leftX = centreX - (hoursWidth + separatorWidth + minutesWidth) / 2f;
+
+            canvas.DrawText(hoursText, leftX, baselineY, textPaint);
+
+            if (showColon)
+            {
+                canvas.DrawText(separatorText, leftX + hoursWidth, baselineY, textPaint);
+            }
+
+            canvas.DrawText(
+                minutesText, leftX + hoursWidth + separatorWidth, baselineY, textPaint);
+
+            textPaint.TextAlign = previousAlign;
         }
 
         /// <summary>

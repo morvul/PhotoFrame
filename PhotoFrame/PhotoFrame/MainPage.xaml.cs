@@ -78,6 +78,9 @@ namespace PhotoFrame
         private readonly System.Timers.Timer _panelHideTimer;
         private readonly System.Timers.Timer _clockTimer;
 
+        /// <summary>Гасит и зажигает двоеточие ночных часов.</summary>
+        private readonly System.Timers.Timer _nightBlinkTimer;
+
         /// <summary>Опрос позиции воспроизведения: у VideoView нет события о прогрессе.</summary>
         private readonly System.Timers.Timer _videoProgressTimer;
 
@@ -198,6 +201,25 @@ namespace PhotoFrame
         /// <summary>До этого момента живые фото не оживляем; null — можно.</summary>
         private DateTime? _motionBackoffUntil;
 
+        /// <summary>
+        /// Тот же кадр часов, но без двоеточия.
+        /// </summary>
+        /// <remarks>
+        /// Хранится готовым, чтобы мигание ничего не перерисовывало: подмена уже
+        /// нарисованного кадра в ImageView мгновенна, а отрисовка кадра 1280x800 на
+        /// этой рамке заметна — раз в минуту её позволить можно, раз в секунду нет.
+        /// </remarks>
+        private Android.Graphics.Bitmap? _nightFrameWithoutColon;
+
+        /// <summary>Кадр текущей минуты с двоеточием — к нему возвращаемся после мигания.</summary>
+        private Android.Graphics.Bitmap? _nightFrameWithColon;
+
+        /// <summary>Слой, в котором лежит кадр текущей минуты.</summary>
+        private Image? _nightBlinkLayer;
+
+        /// <summary>Сейчас двоеточие погашено.</summary>
+        private bool _nightColonHidden;
+
         /// <summary>Сейчас на виду верхний слой слайд-шоу.</summary>
         private bool _slideInTopLayer;
 
@@ -289,6 +311,15 @@ namespace PhotoFrame
             };
             _clockTimer.Elapsed += OnClockTimerElapsed;
 
+            // Своя частота у мигания: часы перерисовываются раз в минуту, а двоеточие
+            // должно гаснуть заметно чаще — иначе непонятно, идут часы или замерли.
+            _nightBlinkTimer = new System.Timers.Timer(TimeSpan.FromSeconds(1).TotalMilliseconds)
+            {
+                AutoReset = true,
+            };
+
+            _nightBlinkTimer.Elapsed += OnNightBlinkTimerElapsed;
+
             // Полсекунды достаточно: полоса длиной 520 px на минутном клипе сдвигается
             // примерно на 4 px за такт, дробить мельче незачем.
             _videoProgressTimer = new System.Timers.Timer(500) { AutoReset = true };
@@ -371,9 +402,14 @@ namespace PhotoFrame
         /// незачем. Ночью сообщения не показываются — весь смысл ночного режима в том,
         /// чтобы экран не светил.
         /// </remarks>
-        private void ShowToast(string text)
+        /// <param name="evenAtNight">
+        /// Показать сообщение и ночью. Обычно ночью они молчат — весь смысл ночного
+        /// режима в тёмном экране, — но ответ на только что сделанный жест исключение:
+        /// иначе непонятно, услышали его или нет.
+        /// </param>
+        private void ShowToast(string text, bool evenAtNight = false)
         {
-            if (_isNightModeActive == true)
+            if (_isNightModeActive == true && !evenAtNight)
             {
                 return;
             }
@@ -758,10 +794,14 @@ namespace PhotoFrame
 
                 FrameSettings.NightClockIntensityPercent = intensity;
 
-                // Перерисовываем немедленно, иначе новое значение проявилось бы только
-                // со сменой минуты — до неё можно ждать минуту и решить, что не работает.
+                // Перерисовываем сейчас же, а не ждём очередного тика часов: тик идёт
+                // раз в десять секунд, и взмах выглядел бы не сработавшим.
                 _lastRenderedNightMinute = null;
-                ShowToast($"Насыщенность цифр: {intensity} %");
+                _ = RedrawNightClockNowAsync();
+
+                // Ночью сообщения обычно молчат, но это — ответ на только что сделанный
+                // взмах: без него непонятно, изменилось ли что-нибудь и насколько.
+                ShowToast($"Насыщенность цифр: {intensity} %", evenAtNight: true);
                 return;
             }
 
@@ -835,11 +875,36 @@ namespace PhotoFrame
                 _nightFramesRendered++;
 
                 ShowNightClockFrame(renderedFrame);
+
+                // Второй кадр этой же минуты, без двоеточия: им и мигаем.
+                //
+                // Мигание на это время останавливается, и ссылка на кадр убирается:
+                // рисуем-то мы поверх него, а первым делом заливаем его чёрным. Пока
+                // этого не было, таймер успевал показать наполовину перерисованный
+                // кадр — на смене минуты по экрану шёл тёмный блик.
+                _nightBlinkTimer.Stop();
+
+                Android.Graphics.Bitmap? colonOffCanvas = _nightFrameWithoutColon;
+                _nightFrameWithoutColon = null;
+                _nightFrameWithColon = renderedFrame;
+                _nightColonHidden = false;
+
+                Android.Graphics.Bitmap frameWithoutColon = await Task.Run(
+                    () => NightClockRenderer.RenderBitmap(
+                        widthPixels, heightPixels, formattedTime, formattedDate, sensorText,
+                        phaseShifted, colorHex, intensityPercent, colonOffCanvas,
+                        showColon: false))
+                    .ConfigureAwait(true);
+
+                _nightFrameWithoutColon = frameWithoutColon;
+                _nightBlinkTimer.Start();
             }
             catch (Exception renderFailure)
             {
                 // Не удалось — под изображением остаются обычные метки с часами.
-                System.Diagnostics.Debug.WriteLine($"Ночные часы не отрисованы: {renderFailure}");
+                // FrameLog, а не Debug.WriteLine: в Release тот вырезается, и причина
+                // повторной отрисовки каждые десять секунд оставалась невидимой.
+                FrameLog.Warn($"Ночные часы не отрисованы: {renderFailure}");
                 _lastRenderedNightMinute = null;
             }
         }
@@ -906,6 +971,9 @@ namespace PhotoFrame
             // Прежний слой только отцепляем: его кадр пригодится через минуту.
             DetachLayer(previousLayer);
             _nightFrameInFrontLayer = intoFrontLayer;
+
+            // Мигать двоеточием будем в этом слое: он сейчас на виду.
+            _nightBlinkLayer = targetLayer;
         }
 
         private static bool TrySetLayerFrame(Image layer, Android.Graphics.Bitmap frame)
@@ -964,8 +1032,64 @@ namespace PhotoFrame
         }
 
         /// <summary>Убирает ночные часы с экрана и освобождает оба кадра.</summary>
+        /// <summary>
+        /// Перерисовывает ночные часы немедленно, тем же временем, что и сейчас.
+        /// </summary>
+        private Task RedrawNightClockNowAsync()
+        {
+            DateTime localNow = DateTime.Now;
+
+            string rawDate = localNow.ToString("dddd, d MMMM", CultureInfo.CurrentCulture);
+            string formattedDate =
+                char.ToUpper(rawDate[0], CultureInfo.CurrentCulture) + rawDate[1..];
+
+            return RefreshNightClockAsync(
+                localNow.ToString("HH:mm", CultureInfo.CurrentCulture), formattedDate);
+        }
+
+        /// <summary>
+        /// Гасит и зажигает двоеточие, подменяя готовый кадр.
+        /// </summary>
+        /// <remarks>
+        /// Ничего не рисуется: оба кадра минуты уже готовы, и подмена картинки
+        /// в ImageView обходится даром. Работает только ночью и только когда кадры
+        /// на месте — иначе таймер просто ничего не делает.
+        /// </remarks>
+        private void OnNightBlinkTimerElapsed(object? sender, ElapsedEventArgs e) =>
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                if (_isNightModeActive != true || _nightBlinkLayer is null)
+                {
+                    return;
+                }
+
+                Android.Graphics.Bitmap? nextFrame = _nightColonHidden
+                    ? _nightFrameWithColon
+                    : _nightFrameWithoutColon;
+
+                if (nextFrame is null || nextFrame.IsRecycled)
+                {
+                    return;
+                }
+
+                if (TrySetLayerFrame(_nightBlinkLayer, nextFrame))
+                {
+                    _nightColonHidden = !_nightColonHidden;
+                }
+            });
+
         private void ReleaseNightClockFrame()
         {
+            _nightBlinkTimer.Stop();
+            _nightBlinkLayer = null;
+            _nightColonHidden = false;
+
+            ReleaseFrame(_nightFrameWithoutColon);
+            _nightFrameWithoutColon = null;
+
+            // Кадр с двоеточием — это один из кадров слоёв, и освободят его ниже.
+            _nightFrameWithColon = null;
+
             DetachLayer(NightClockFrontImage);
             DetachLayer(NightClockBackImage);
 
@@ -1787,6 +1911,29 @@ namespace PhotoFrame
             // Прозрачность меняется только у верхнего слоя: нижний всегда виден под ним.
             await SlideshowImageTop.FadeToAsync(
                 intoTopLayer ? 1 : 0, SlideCrossfadeMilliseconds).ConfigureAwait(true);
+
+            // Кадр из ушедшего слоя надо убрать, а не просто перекрыть. Вписанный
+            // снимок занимает не весь экран, и вокруг него просвечивал предыдущий:
+            // после вертикального кадра по краям оставались куски горизонтального.
+            if (photoGeneration != _photoGeneration || _slideInTopLayer != intoTopLayer)
+            {
+                // За время перехода успел появиться следующий кадр — он и разберётся
+                // со слоями сам.
+                return;
+            }
+
+            if (intoTopLayer)
+            {
+                DetachLayer(SlideshowImage);
+                ReleaseFrame(_bottomSlideFrame, keepIfSame: frame);
+                _bottomSlideFrame = null;
+            }
+            else
+            {
+                DetachLayer(SlideshowImageTop);
+                ReleaseFrame(_topSlideFrame, keepIfSame: frame);
+                _topSlideFrame = null;
+            }
         }
 
         /// <summary>Убирает снимок с экрана вместе с его кадрами.</summary>
