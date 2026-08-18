@@ -220,6 +220,12 @@ namespace PhotoFrame
         /// <summary>Сейчас двоеточие погашено.</summary>
         private bool _nightColonHidden;
 
+        /// <summary>Обновление ночных часов уже идёт.</summary>
+        private bool _nightRefreshRunning;
+
+        /// <summary>Пока рисовали, понадобилось ещё одно обновление.</summary>
+        private bool _nightRefreshQueued;
+
         /// <summary>Сейчас на виду верхний слой слайд-шоу.</summary>
         private bool _slideInTopLayer;
 
@@ -445,6 +451,9 @@ namespace PhotoFrame
         protected override void OnAppearing()
         {
             base.OnAppearing();
+
+            // Вернулись — значит, переход завершился и кнопки снова рабочие.
+            _isLeavingToAnotherPage = false;
 
             // Настройки могли измениться на экране настроек, поэтому перечитываем их
             // каждый раз при возврате, а не только в конструкторе.
@@ -836,6 +845,18 @@ namespace PhotoFrame
                 return;
             }
 
+            // Два обновления сразу накладываться не должны. Так и получалось: минута
+            // сменилась, а через секунду пришли показания датчиков и запустили второе
+            // обновление, пока первое ещё перетекало. Второе занимало слой, который
+            // первое затем отцепляло, — и на один кадр оба слоя оставались пустыми,
+            // то есть экран становился чёрным. Опоздавшее обновление ждёт очереди.
+            if (_nightRefreshRunning)
+            {
+                _nightRefreshQueued = true;
+                return;
+            }
+
+            _nightRefreshRunning = true;
             _lastRenderedNightMinute = formattedTime;
 
             // Инверсия маски на каждом обновлении: светятся уже другие пиксели.
@@ -874,7 +895,7 @@ namespace PhotoFrame
 
                 _nightFramesRendered++;
 
-                ShowNightClockFrame(renderedFrame);
+                await ShowNightClockFrameAsync(renderedFrame).ConfigureAwait(true);
 
                 // Второй кадр этой же минуты, без двоеточия: им и мигаем.
                 //
@@ -905,7 +926,27 @@ namespace PhotoFrame
                 // FrameLog, а не Debug.WriteLine: в Release тот вырезается, и причина
                 // повторной отрисовки каждые десять секунд оставалась невидимой.
                 FrameLog.Warn($"Ночные часы не отрисованы: {renderFailure}");
+                NightFallbackClock.IsVisible = true;
                 _lastRenderedNightMinute = null;
+            }
+            finally
+            {
+                _nightRefreshRunning = false;
+            }
+
+            if (!_nightRefreshQueued)
+            {
+                return;
+            }
+
+            // Пока рисовали, что-то успело измениться: пришли показания датчиков либо
+            // взмахом поменяли насыщенность. Обновляемся ещё раз, теперь по порядку.
+            _nightRefreshQueued = false;
+            _lastRenderedNightMinute = null;
+
+            if (_isNightModeActive == true)
+            {
+                await RedrawNightClockNowAsync().ConfigureAwait(true);
             }
         }
 
@@ -922,7 +963,7 @@ namespace PhotoFrame
         /// на экране остаётся прежний. С одним слоем оставался один чёрный кадр — между
         /// очисткой ImageView и отрисовкой нового содержимого.
         /// </remarks>
-        private void ShowNightClockFrame(Android.Graphics.Bitmap renderedFrame)
+        private async Task ShowNightClockFrameAsync(Android.Graphics.Bitmap renderedFrame)
         {
             bool intoFrontLayer = !_nightFrameInFrontLayer;
 
@@ -939,6 +980,8 @@ namespace PhotoFrame
                     ReleaseFrame(renderedFrame);
                 }
 
+                // Кадр показать не удалось — метки снова нужны.
+                NightFallbackClock.IsVisible = true;
                 _lastRenderedNightMinute = null;
                 return;
             }
@@ -968,12 +1011,26 @@ namespace PhotoFrame
                 }
             }
 
-            // Прежний слой только отцепляем: его кадр пригодится через минуту.
-            DetachLayer(previousLayer);
             _nightFrameInFrontLayer = intoFrontLayer;
 
             // Мигать двоеточием будем в этом слое: он сейчас на виду.
             _nightBlinkLayer = targetLayer;
+
+            // Резервные метки убираем: кадр с маской на экране, и они больше не нужны.
+            // Пока они оставались под кадрами, любой их зазор — хоть на один кадр
+            // отрисовки — показывал другие часы: мелкие, сплошные и без датчиков.
+            // Именно это и выглядело «блином» на смене минуты.
+            NightFallbackClock.IsVisible = false;
+
+            // Перетекание вместо подмены: прозрачность меняется только у верхнего слоя,
+            // нижний всё время под ним. Пока новый кадр добирается до экрана, уходящий
+            // остаётся нарисованным — блика между минутами больше нет.
+            await NightClockFrontImage.FadeToAsync(
+                intoFrontLayer ? 1 : 0, SlideCrossfadeMilliseconds).ConfigureAwait(true);
+
+            // Кадр прежнего слоя нужен через минуту как холст, поэтому слой только
+            // отцепляем: рисовать в прицепленный кадр нельзя, он мелькнёт на экране.
+            DetachLayer(previousLayer);
         }
 
         private static bool TrySetLayerFrame(Image layer, Android.Graphics.Bitmap frame)
@@ -1080,6 +1137,8 @@ namespace PhotoFrame
 
         private void ReleaseNightClockFrame()
         {
+            NightClockFrontImage.Opacity = 0;
+            NightFallbackClock.IsVisible = true;
             _nightBlinkTimer.Stop();
             _nightBlinkLayer = null;
             _nightColonHidden = false;
@@ -1249,17 +1308,36 @@ namespace PhotoFrame
             _slideshowTimer.Start();
         }
 
+        /// <summary>
+        /// Открывает настройки — по одному экрану на нажатие.
+        /// </summary>
+        /// <remarks>
+        /// Флаг нужен потому, что переход не мгновенен: на этой рамке экран настроек
+        /// открывается заметно, и за это время по кнопке успевают нажать ещё раз-другой.
+        /// Каждое нажатие добавляло свой экран в стек, и «Назад» приходилось нажимать
+        /// столько же раз. Снимается флаг в OnAppearing, когда страница снова на виду.
+        /// </remarks>
+        private bool _isLeavingToAnotherPage;
+
         private async void OnSettingsClicked(object? sender, EventArgs e)
         {
+            if (_isLeavingToAnotherPage)
+            {
+                return;
+            }
+
+            _isLeavingToAnotherPage = true;
             await Shell.Current.GoToAsync(nameof(SettingsPage));
         }
 
         private async void OnFileInfoClicked(object? sender, EventArgs e)
         {
-            if (_localPhotoPaths.Count == 0)
+            if (_localPhotoPaths.Count == 0 || _isLeavingToAnotherPage)
             {
                 return;
             }
+
+            _isLeavingToAnotherPage = true;
 
             string mediaPath = _localPhotoPaths[_currentPhotoIndex];
 
