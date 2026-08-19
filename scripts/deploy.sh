@@ -20,12 +20,12 @@ fi
 
 serial="$(resolve_frame)"
 echo "Рамка $serial: установка..."
-frame install -r "$APK" | tail -1
+frame install -r "$(win_path "$APK")" | tail -1
 
 echo "Запуск..."
 frame shell "am start -n $ACTIVITY" >/dev/null 2>&1
 sleep 6
 
 echo
-echo "На экране: $(frame shell "dumpsys activity activities | grep -m1 mResumedActivity" | tr -d '\r' | sed 's/.*ActivityRecord{[^ ]* [^ ]* //; s/ .*//')"
-echo "Версия:    $(frame shell "dumpsys package $PACKAGE | grep -m1 versionName" | tr -d '\r ' )"
+echo "На экране: $(frame shell "dumpsys activity activities | grep -m1 mResumedActivity" 2>/dev/null | tr -d '' | sed 's/.*ActivityRecord{[^ ]* [^ ]* //; s/ .*//')"
+echo "Версия:    $(frame shell "dumpsys package $PACKAGE | grep -m1 versionName" 2>/dev/null | tr -d ' ' | cut -d= -f2)"

@@ -22,7 +22,7 @@ size="$(stat -c %s "$key_file")"
 [ "$size" -lt 512 ] || die "Слишком велик для ключа ($size байт) — тот файл?"
 
 frame shell "mkdir -p /storage/emulated/0/PhotoFrame"
-frame push "$key_file" "/storage/emulated/0/PhotoFrame/immich.key" >/dev/null
+frame push "$(win_path "$key_file")" "/storage/emulated/0/PhotoFrame/immich.key" >/dev/null 2>&1
 echo "Положено на рамку: PhotoFrame/immich.key ($size байт)"
 echo
 echo "Дальше на самой рамке: ⚙ → ИСТОЧНИК СНИМКОВ → Immich."

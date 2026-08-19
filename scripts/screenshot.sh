@@ -20,7 +20,7 @@ if [ "${1:-}" = "--series" ]; then
     done
 
     for i in $(seq 1 "$count"); do
-        frame pull "/sdcard/shot$i.png" "frame-$stamp-$i.png" >/dev/null 2>&1
+        frame pull "/sdcard/shot$i.png" "$(win_path "frame-$stamp-$i.png")" >/dev/null 2>&1
         frame shell "rm -f /sdcard/shot$i.png"
     done
 
@@ -34,6 +34,6 @@ fi
 
 target="${1:-frame-$(date '+%H%M%S').png}"
 frame shell "screencap -p /sdcard/shot.png"
-frame pull "/sdcard/shot.png" "$target" >/dev/null
+frame pull "/sdcard/shot.png" "$(win_path "$target")" >/dev/null 2>&1
 frame shell "rm -f /sdcard/shot.png"
 echo "Снято: $target"

@@ -32,7 +32,7 @@ echo "занято приложением: $(( ${app_pss:-0} / 1024 )) МБ"
 
 echo
 echo "=== Что на экране ===================================================="
-echo "$(frame shell "dumpsys activity activities | grep -m1 mResumedActivity" | tr -d '\r' | sed 's/^ *//')"
+echo "приложение: $(frame shell "dumpsys activity activities | grep -m1 mResumedActivity" 2>/dev/null | tr -d '' | sed 's/.*ActivityRecord{[^ ]* [^ ]* //; s/ .*//')"
 echo "домашний экран: $(frame shell "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | tail -1" | tr -d '\r')"
 
 echo

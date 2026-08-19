@@ -14,7 +14,7 @@
 case "${1:-20}" in
     --pull)
         target="frame-$(resolve_frame).log"
-        frame pull "$FRAME_LOG" "$target" >/dev/null
+        frame pull "$FRAME_LOG" "$(win_path "$target")" >/dev/null 2>&1
         echo "Скачано: $target ($(wc -l < "$target") строк)"
         ;;
     *[0-9])
