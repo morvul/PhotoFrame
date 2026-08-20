@@ -10,6 +10,7 @@ namespace PhotoFrame
     {
         private bool _isSelected;
         private string _icon = string.Empty;
+        private int _orderNumber;
 
         public HomeAssistantSensor(
             string entityId, string displayName, string value, string unit, string? deviceClass)
@@ -82,6 +83,33 @@ namespace PhotoFrame
         public string IconButtonText => !IsSelected
             ? string.Empty
             : (string.IsNullOrEmpty(Icon) ? "…" : Icon);
+
+        /// <summary>
+        /// Какой по счёту среди выбранных; 0 — не выбран.
+        /// </summary>
+        /// <remarks>
+        /// Порядок задаёт, как значения встанут на экране рамки, и без номера его
+        /// не видно: отметки одинаковые, а «третий слева» — это как раз то, что
+        /// человек и хочет поправить.
+        /// </remarks>
+        public int OrderNumber
+        {
+            get => _orderNumber;
+            set
+            {
+                if (_orderNumber == value)
+                {
+                    return;
+                }
+
+                _orderNumber = value;
+                RaisePropertyChanged();
+                RaisePropertyChanged(nameof(OrderText));
+            }
+        }
+
+        /// <summary>Номер для показа: у невыбранного датчика пусто.</summary>
+        public string OrderText => OrderNumber > 0 ? OrderNumber.ToString() : string.Empty;
 
         public string SelectionGlyph => IsSelected ? "✓" : "+";
 

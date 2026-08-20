@@ -224,9 +224,14 @@ namespace PhotoFrame
         }
 
         /// <summary>
-        /// Раскладывает значки датчиков по строкам, чтобы каждая уместилась в ширину.
+        /// Раскладывает значки датчиков по строкам: по три, а если строка не влезает
+        /// в ширину — то и меньше.
         /// </summary>
         /// <remarks>
+        /// По три, а не «сколько поместится»: строки выходят одинаковой длины, и глаз
+        /// находит нужное значение на том же месте. Ширина всё равно проверяется —
+        /// значки бывают длинными («🌡 -12.3°C»), и тогда в строке остаётся два.
+        ///
         /// Перенос идёт по значкам, а не по словам: «🌱 24.5°C» — единое целое, и рвать
         /// его между значком и значением нельзя. Значок шире всей строки (такого быть
         /// не должно, но всё же) остаётся один в строке и просто выйдет за края.
@@ -241,36 +246,41 @@ namespace PhotoFrame
 
             using var measurePaint = new AndroidPaint(PaintFlags.AntiAlias) { TextSize = textSize };
 
-            string[] badges = sensorText.Split(
-                BadgeSeparator, System.StringSplitOptions.RemoveEmptyEntries);
-
-            string currentLine = string.Empty;
-            foreach (string badge in badges)
+            foreach (string line in SensorBadgeLayout.SplitIntoLines(sensorText))
             {
-                string candidate = currentLine.Length == 0
-                    ? badge
-                    : currentLine + BadgeSeparator + badge;
-
-                if (currentLine.Length > 0 && measurePaint.MeasureText(candidate) > maxWidth)
+                if (measurePaint.MeasureText(line) <= maxWidth)
                 {
-                    lines.Add(currentLine);
-                    currentLine = badge;
+                    lines.Add(line);
                     continue;
                 }
 
-                currentLine = candidate;
-            }
+                // Три значка в ширину не уместились — досыпаем по одному, пока влезает.
+                string currentLine = string.Empty;
 
-            if (currentLine.Length > 0)
-            {
-                lines.Add(currentLine);
+                foreach (string badge in SensorBadgeLayout.SplitBadges(line))
+                {
+                    string candidate = currentLine.Length == 0
+                        ? badge
+                        : currentLine + SensorBadgeLayout.BadgeSeparator + badge;
+
+                    if (currentLine.Length > 0 && measurePaint.MeasureText(candidate) > maxWidth)
+                    {
+                        lines.Add(currentLine);
+                        currentLine = badge;
+                        continue;
+                    }
+
+                    currentLine = candidate;
+                }
+
+                if (currentLine.Length > 0)
+                {
+                    lines.Add(currentLine);
+                }
             }
 
             return lines;
         }
-
-        /// <summary>Чем разделены значки датчиков в строке, собранной страницей.</summary>
-        private const string BadgeSeparator = "   ";
 
         /// <summary>
         /// Проценты насыщенности в прозрачность краски.

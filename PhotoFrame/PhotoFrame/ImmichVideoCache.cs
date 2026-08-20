@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -37,6 +38,31 @@ namespace PhotoFrame
 
         /// <summary>Одновременно качаем один клип: показан всё равно один кадр.</summary>
         private static readonly SemaphoreSlim DownloadGate = new(1, 1);
+
+        /// <summary>Первые байты файла как текст — для журнала.</summary>
+        private static string DescribeHead(string filePath)
+        {
+            try
+            {
+                var head = new byte[48];
+                using FileStream file = File.OpenRead(filePath);
+                int read = file.Read(head, 0, head.Length);
+
+                var text = new StringBuilder(read);
+                for (int index = 0; index < read; index++)
+                {
+                    byte value = head[index];
+                    text.Append(value >= 32 && value < 127 ? (char)value : '.');
+                }
+
+                return text.ToString();
+            }
+            catch (Exception readFailure) when (
+                readFailure is IOException or UnauthorizedAccessException)
+            {
+                return "не прочитать";
+            }
+        }
 
         private static string SkipListPath =>
             IoPath.Combine(ImmichPhotoSource.PhotoLibraryDirectory, SkipListFileName);
@@ -173,7 +199,12 @@ namespace PhotoFrame
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    FrameLog.Warn($"Клип Immich не отдан: {(int)response.StatusCode}.");
+                    string body = await response.Content
+                        .ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                    FrameLog.Warn(
+                        $"Клип Immich не отдан: {(int)response.StatusCode} "
+                        + (body.Length > 200 ? body[..200] : body));
                     return null;
                 }
 
@@ -216,7 +247,15 @@ namespace PhotoFrame
 
                 if (!ClipStorage.IsPlayableVideoFile(clipPath))
                 {
-                    FrameLog.Warn("Скачанный клип Immich не похож на mp4.");
+                    // Что именно пришло вместо клипа — сказать необходимо: с кодом 200
+                    // сервер отдаёт и страницу ошибки, и пустой файл, и контейнер,
+                    // которого мы не ждали. Начало файла и тип содержимого различают
+                    // эти случаи, а гадать по одной строке «не похож на mp4» нельзя.
+                    FrameLog.Warn(
+                        $"Скачанный клип Immich не похож на mp4: тип "
+                        + $"{response.Content.Headers.ContentType}, "
+                        + $"байт {new FileInfo(clipPath).Length}, начало «{DescribeHead(clipPath)}»");
+
                     ClipStorage.TryDelete(clipPath);
                     return null;
                 }

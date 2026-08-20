@@ -51,14 +51,15 @@ namespace PhotoFrame
                 IoPath.GetFileNameWithoutExtension(posterPath) + ".mp4");
 
         /// <summary>
-        /// Проверяет, что файл действительно mp4: у контейнера на четвёртом байте стоит
-        /// «ftyp». Ошибку от сервера, отданную с кодом 200, иначе не отличить от клипа.
+        /// Проверяет, что файл похож на видео: ошибку от сервера, отданную с кодом 200,
+        /// иначе не отличить от клипа. Какие начала считаются годными и почему —
+        /// в <see cref="VideoContainerHeader"/>.
         /// </summary>
         public static bool IsPlayableVideoFile(string videoPath)
         {
             try
             {
-                var header = new byte[12];
+                var header = new byte[VideoContainerHeader.RequiredBytes];
 
                 using FileStream file = File.OpenRead(videoPath);
                 if (file.Read(header, 0, header.Length) < header.Length)
@@ -66,8 +67,7 @@ namespace PhotoFrame
                     return false;
                 }
 
-                return header[4] == (byte)'f' && header[5] == (byte)'t'
-                    && header[6] == (byte)'y' && header[7] == (byte)'p';
+                return VideoContainerHeader.LooksLikeContainer(header);
             }
             catch (Exception readFailure) when (
                 readFailure is IOException or UnauthorizedAccessException)

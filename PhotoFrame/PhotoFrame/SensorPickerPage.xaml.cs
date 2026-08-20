@@ -64,10 +64,13 @@ namespace PhotoFrame
                     _sensors.Add(sensor);
                 }
 
+                ShowSelectionOrder();
+
                 StatusLabel.Text = sensors.Count == 0
                     ? "Home Assistant не вернул ни одного датчика с числовым значением."
                     : $"Найдено датчиков: {sensors.Count}. " +
-                      "Отметьте любое количество — они выводятся в порядке выбора.";
+                      "Отметьте любое количество; порядок меняется стрелками, "
+                      + "по три значения в строке.";
             }
             catch (PhotoSourceException requestFailure)
             {
@@ -94,12 +97,59 @@ namespace PhotoFrame
             else
             {
                 // Количество не ограничено: сколько значений уместно на экране, решает
-                // сам пользователь, а строка датчиков переносится по словам.
+                // сам пользователь, а строка датчиков переносится по три в строке.
                 _selectedEntityIds.Add(sensor.EntityId);
                 sensor.IsSelected = true;
             }
 
+            ShowSelectionOrder();
             UpdateSelectionSummary();
+        }
+
+        /// <summary>Двигает датчик выше в порядке показа.</summary>
+        private void OnMoveSensorUpClicked(object? sender, EventArgs e) => MoveSensor(sender, -1);
+
+        /// <summary>Двигает датчик ниже в порядке показа.</summary>
+        private void OnMoveSensorDownClicked(object? sender, EventArgs e) => MoveSensor(sender, +1);
+
+        /// <summary>
+        /// Переставляет выбранный датчик в порядке показа.
+        /// </summary>
+        /// <remarks>
+        /// Двигается запись в списке выбранных, а не строка в перечне датчиков: перечень
+        /// приходит от Home Assistant и отсортирован по названию, а порядок показа —
+        /// дело пользователя. На краях список не заворачивается: дошёл до первого места
+        /// и стоит, иначе кнопка «выше» неожиданно уводила бы датчик в самый низ.
+        /// </remarks>
+        private void MoveSensor(object? sender, int offset)
+        {
+            if (sender is not Button { CommandParameter: HomeAssistantSensor sensor })
+            {
+                return;
+            }
+
+            int position = _selectedEntityIds.IndexOf(sensor.EntityId);
+            int target = position + offset;
+
+            if (position < 0 || target < 0 || target >= _selectedEntityIds.Count)
+            {
+                return;
+            }
+
+            _selectedEntityIds.RemoveAt(position);
+            _selectedEntityIds.Insert(target, sensor.EntityId);
+
+            ShowSelectionOrder();
+            UpdateSelectionSummary();
+        }
+
+        /// <summary>Расставляет номера по текущему порядку выбранных.</summary>
+        private void ShowSelectionOrder()
+        {
+            foreach (HomeAssistantSensor sensor in _sensors)
+            {
+                sensor.OrderNumber = _selectedEntityIds.IndexOf(sensor.EntityId) + 1;
+            }
         }
 
         /// <summary>

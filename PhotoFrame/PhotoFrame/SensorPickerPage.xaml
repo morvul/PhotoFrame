@@ -46,22 +46,65 @@
         <CollectionView Grid.Row="2" x:Name="SensorList" SelectionMode="None">
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="local:HomeAssistantSensor">
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" Padding="24,14" ColumnSpacing="14">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" Padding="24,14" ColumnSpacing="10">
+
+                        <!--
+                            Номер в порядке показа. Стрелки рядом переставляют датчик
+                            выше и ниже: порядок задаёт, как значения встанут на экране,
+                            и раньше поменять его можно было только снятием отметок
+                            и повторным выбором в нужной последовательности.
+                        -->
+                        <Label Grid.Column="0"
+                               Text="{Binding OrderText}"
+                               TextColor="#4FC3F7"
+                               FontSize="15"
+                               FontAttributes="Bold"
+                               WidthRequest="22"
+                               HorizontalTextAlignment="End"
+                               VerticalOptions="Center" />
+
+                        <VerticalStackLayout Grid.Column="1" Spacing="2">
                             <Label Text="{Binding DisplayName}" TextColor="White" FontSize="17" />
                             <Label Text="{Binding DetailText}" TextColor="Gray" FontSize="12"
                                    LineBreakMode="TailTruncation" />
                         </VerticalStackLayout>
 
-                        <Label Grid.Column="1"
+                        <Label Grid.Column="2"
                                Text="{Binding ValueWithUnit}"
                                TextColor="#4FC3F7"
                                FontSize="19"
                                FontAttributes="Bold"
                                VerticalOptions="Center" />
 
+                        <!-- Стрелки только у выбранных: невыбранному двигаться некуда. -->
+                        <VerticalStackLayout Grid.Column="3"
+                                             IsVisible="{Binding IsSelected}"
+                                             Spacing="2"
+                                             VerticalOptions="Center">
+                            <Button Text="▲"
+                                    Clicked="OnMoveSensorUpClicked"
+                                    CommandParameter="{Binding .}"
+                                    BackgroundColor="#2A2A2A"
+                                    TextColor="White"
+                                    FontSize="13"
+                                    Padding="0"
+                                    WidthRequest="44"
+                                    HeightRequest="26"
+                                    CornerRadius="6" />
+                            <Button Text="▼"
+                                    Clicked="OnMoveSensorDownClicked"
+                                    CommandParameter="{Binding .}"
+                                    BackgroundColor="#2A2A2A"
+                                    TextColor="White"
+                                    FontSize="13"
+                                    Padding="0"
+                                    WidthRequest="44"
+                                    HeightRequest="26"
+                                    CornerRadius="6" />
+                        </VerticalStackLayout>
+
                         <!-- Значок задаётся только у выбранного датчика. -->
-                        <Button Grid.Column="2"
+                        <Button Grid.Column="4"
                                 Text="{Binding IconButtonText}"
                                 IsVisible="{Binding IsSelected}"
                                 Clicked="OnPickIconClicked"
@@ -73,7 +116,7 @@
                                 HeightRequest="54"
                                 CornerRadius="12" />
 
-                        <Button Grid.Column="3"
+                        <Button Grid.Column="5"
                                 Text="{Binding SelectionGlyph}"
                                 BackgroundColor="{Binding SelectionColor}"
                                 Clicked="OnToggleSensorClicked"

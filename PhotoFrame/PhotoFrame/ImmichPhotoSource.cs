@@ -164,6 +164,38 @@ namespace PhotoFrame
             }
         }
 
+        /// <summary>
+        /// Достаёт из неудачного ответа то, что можно показать человеку.
+        /// </summary>
+        /// <remarks>
+        /// Immich отвечает объектом вида {"message":"...","error":"...","statusCode":400}.
+        /// Разбирать его целиком незачем: нужна одна строка, а тело обрезается — в него
+        /// при иных ошибках попадает целая страница.
+        /// </remarks>
+        private static async Task<string> ReadFailureReasonAsync(
+            HttpResponseMessage response, CancellationToken cancellationToken)
+        {
+            try
+            {
+                string body = await response.Content
+                    .ReadAsStringAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                body = body.Trim();
+                if (body.Length == 0)
+                {
+                    return string.Empty;
+                }
+
+                return ": " + (body.Length > 200 ? body[..200] : body);
+            }
+            catch (Exception readFailure) when (
+                readFailure is HttpRequestException or IOException or OperationCanceledException)
+            {
+                return string.Empty;
+            }
+        }
+
         /// <inheritdoc />
         public async Task<AlbumSyncResult> RefreshAsync(
             bool forceRefresh,
@@ -368,8 +400,14 @@ namespace PhotoFrame
 
                     if (!response.IsSuccessStatusCode)
                     {
+                        // Тело ответа с собой: в нём сервер и объясняет, что не так.
+                        // Одного кода мало — «ошибка 400» не отличает опечатку в запросе
+                        // от отсутствия прав на чужой снимок из общего альбома.
+                        string reason = await ReadFailureReasonAsync(response, cancellationToken)
+                            .ConfigureAwait(false);
+
                         throw new PhotoSourceException(
-                            $"Сервер Immich ответил ошибкой ({(int)response.StatusCode}).");
+                            $"Сервер Immich ответил ошибкой ({(int)response.StatusCode}){reason}.");
                     }
 
                     return await response.Content

@@ -541,8 +541,12 @@ namespace PhotoFrame
                         return;
                     }
 
-                    _sensorLineText = string.Join("   ", parts);
-                    SetOutlinedText(_sensorLabels, _sensorLineText);
+                    _sensorLineText = string.Join(SensorBadgeLayout.BadgeSeparator, parts);
+
+                    // Поверх снимка — те же три значка в строке, что и в ночных часах:
+                    // одной строкой показания уезжали за край экрана.
+                    SetOutlinedText(
+                        _sensorLabels, SensorBadgeLayout.WrapWithLineBreaks(_sensorLineText));
                     SensorHost.IsVisible = _isNightModeActive != true;
 
                     // Ночью показания входят в сам кадр часов. Обычно они приходят
@@ -1519,7 +1523,18 @@ namespace PhotoFrame
             }
 
             FrameSettings.AddTrashedAlbumFileName(Path.GetFileName(mediaPath));
-            ShowToast($"С рамки убрано, но в Immich осталось: {failureMessage}");
+
+            // Чаще всего отказ означает ровно одно: снимок чужой. В библиотеку он
+            // попал из общего альбома, читать его можно, а удалять нет, и сервер
+            // отвечает «Not found or no asset.delete access». Так и скажем: код 400
+            // на экране рамки не объясняет ничего, а поведение при этом верное —
+            // с показа кадр убран и обратно не приедет.
+            bool notOurs = failureMessage.Contains(
+                "asset.delete access", StringComparison.Ordinal);
+
+            ShowToast(notOurs
+                ? "Убрано с рамки. Снимок чужой (общий альбом) — на сервере остался"
+                : $"С рамки убрано, но в Immich осталось: {failureMessage}");
         }
 
         /// <summary>
