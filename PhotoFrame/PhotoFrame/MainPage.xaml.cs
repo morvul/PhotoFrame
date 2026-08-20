@@ -1455,8 +1455,10 @@ namespace PhotoFrame
             ImmichSlideInfo? immichSlide = ImmichSidecar.Find(mediaPath);
             if (immichSlide is not null)
             {
-                await RemoveImmichPhotoAsync(mediaPath, immichSlide.AssetId).ConfigureAwait(true);
-                RemoveCurrentPhotoFromShow();
+                string immichOutcome = await RemoveImmichPhotoAsync(
+                    mediaPath, immichSlide.AssetId).ConfigureAwait(true);
+
+                RemoveCurrentPhotoFromShow(immichOutcome);
                 return;
             }
 
@@ -1474,12 +1476,18 @@ namespace PhotoFrame
 
             // Ссылка в альбоме осталась, поэтому кадр надо ещё и внести в список убранных,
             // иначе следующая синхронизация скачает его заново.
-            if (MediaTrash.IsAlbumPhoto(mediaPath))
+            bool fromSharedAlbum = MediaTrash.IsAlbumPhoto(mediaPath);
+            if (fromSharedAlbum)
             {
                 FrameSettings.AddTrashedAlbumFileName(Path.GetFileName(mediaPath));
             }
 
-            RemoveCurrentPhotoFromShow();
+            // Сам альбом Google тронуть нельзя — правит там только его владелец, — а вот
+            // снимок из папки на устройстве действительно переехал. Разница видимая,
+            // и сообщение должно её называть.
+            RemoveCurrentPhotoFromShow(fromSharedAlbum
+                ? "Убрано из показа. В самом альбоме Google снимок остался"
+                : "Файл перенесён в корзину рамки");
         }
 
         /// <summary>
@@ -1494,7 +1502,8 @@ namespace PhotoFrame
         /// Список нужен лишь когда сервер удалить отказался: тогда кадр остаётся на
         /// сервере, и без записи он приезжал бы обратно после каждой проверки.
         /// </remarks>
-        private async Task RemoveImmichPhotoAsync(string mediaPath, string assetId)
+        /// <returns>Что сказать пользователю: сообщение показывает вызывающий код.</returns>
+        private async Task<string> RemoveImmichPhotoAsync(string mediaPath, string assetId)
         {
             ImmichPhotoSource immichSource =
                 IPlatformApplication.Current?.Services.GetService<ImmichPhotoSource>()
@@ -1507,8 +1516,7 @@ namespace PhotoFrame
             if (failureMessage is null)
             {
                 ImmichPhotoSource.RemoveFromCache(mediaPath);
-                ShowToast("Убрано в корзину Immich — вернётся, если восстановить там");
-                return;
+                return "Убрано в корзину Immich — вернётся, если восстановить там";
             }
 
             // Сервер отказал: ведём себя как с кадром альбома — копия в корзине рамки
@@ -1532,9 +1540,9 @@ namespace PhotoFrame
             bool notOurs = failureMessage.Contains(
                 "asset.delete access", StringComparison.Ordinal);
 
-            ShowToast(notOurs
+            return notOurs
                 ? "Убрано с рамки. Снимок чужой (общий альбом) — на сервере остался"
-                : $"С рамки убрано, но в Immich осталось: {failureMessage}");
+                : $"С рамки убрано, но в Immich осталось: {failureMessage}";
         }
 
         /// <summary>
@@ -1589,7 +1597,14 @@ namespace PhotoFrame
         /// Манифесты источников не переписываются: и альбом, и папки при чтении пропускают
         /// файлы, которых нет на диске, поэтому убранный кадр не вернётся и после перезапуска.
         /// </remarks>
-        private void RemoveCurrentPhotoFromShow()
+        /// <param name="outcome">
+        /// Что случилось со снимком. Своё сообщение на каждый источник: у Immich кадр
+        /// уходит в корзину сервера, у альбома Google остаётся на месте, а файл из папки
+        /// действительно переезжает. Раньше здесь всегда говорилось «убрано в корзину»,
+        /// причём поверх точного сообщения, показанного мгновением раньше, — и удаление
+        /// из своей библиотеки было не отличить от отказа в чужой.
+        /// </param>
+        private void RemoveCurrentPhotoFromShow(string outcome)
         {
             int removedIndex = _currentPhotoIndex;
             _localPhotoPaths.RemoveAt(removedIndex);
@@ -1597,7 +1612,7 @@ namespace PhotoFrame
             // Порядок изменился — сохранённый список без этого стал бы неприменим целиком.
             SlideshowStateStore.SaveOrder(_localPhotoPaths);
 
-            ShowToast($"Убрано в корзину. Осталось {_localPhotoPaths.Count} фото");
+            ShowToast($"{outcome}. Осталось {_localPhotoPaths.Count} фото");
             FrameLog.Info($"Кадр убран, осталось {_localPhotoPaths.Count}; показ продолжается");
 
             if (_localPhotoPaths.Count == 0)
