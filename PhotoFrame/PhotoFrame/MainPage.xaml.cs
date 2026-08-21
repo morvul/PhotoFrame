@@ -464,7 +464,7 @@ namespace PhotoFrame
 
             // Сначала показываем то, что уже лежит на диске: рамка не должна стоять
             // чёрной, пока идёт сетевой запрос.
-            LoadPhotosFromCache();
+            _ = LoadPhotosFromCacheAsync();
 
             _albumPollTimer.Start();
 
@@ -1638,9 +1638,37 @@ namespace PhotoFrame
             await SynchronizeAlbumAsync(forceDownload: true);
         }
 
-        private void OnAlbumPollTimerElapsed(object? sender, ElapsedEventArgs e)
+        /// <summary>
+        /// Сколько выждать, прежде чем начинать просроченную проверку источников.
+        /// </summary>
+        /// <remarks>
+        /// Пока рамка спит, таймер проверки не идёт, и при пробуждении он срабатывает
+        /// сразу: опрос сервера, разбор тысяч записей, перезапись списков и загрузка
+        /// клипов сваливались в ту самую минуту, когда человек подошёл к рамке. Минута
+        /// отсрочки отдаёт первые кадры показу, а работу делает следом.
+        /// </remarks>
+        private static readonly TimeSpan PollDelayAfterWake = TimeSpan.FromMinutes(1);
+
+        private void OnAlbumPollTimerElapsed(object? sender, ElapsedEventArgs e) =>
+            _ = PollSourcesAsync();
+
+        private async Task PollSourcesAsync()
         {
-            _ = SynchronizeAlbumAsync(forceDownload: false);
+            // Просрочена ли проверка, видно по времени прошлой: у таймера этого
+            // не спросить, а спящая рамка его попросту не двигает. Полтора интервала —
+            // чтобы обычное срабатывание по расписанию отсрочку не задевало.
+            // LastSyncUtc пуст до самой первой проверки — тогда и просрочки нет.
+            bool overdue = FrameSettings.LastSyncUtc is { } lastSync
+                           && DateTime.UtcNow - lastSync
+                              > FrameSettings.AlbumPollIntervalHours * TimeSpan.FromHours(1.5);
+
+            if (overdue)
+            {
+                FrameHeartbeat.Write("проверка просрочена, начнём через минуту");
+                await Task.Delay(PollDelayAfterWake).ConfigureAwait(true);
+            }
+
+            await SynchronizeAlbumAsync(forceDownload: false).ConfigureAwait(true);
         }
 
         /// <summary>
@@ -1665,6 +1693,11 @@ namespace PhotoFrame
                     ShowToast("Проверка источников...");
                 });
 
+                // В журнал состояния, а не только в logcat: тот не переживает
+                // перезагрузку, а разбираться в утреннем подтормаживании приходится
+                // уже после неё.
+                FrameHeartbeat.Write("проверка источников начата");
+
                 // Прогресс приходит только от альбома: локальные папки ничего не качают,
                 // и писать "Загрузка" про обход файлов было бы неправдой.
                 var downloadProgress = new Progress<(int Completed, int Total)>(progress =>
@@ -1676,9 +1709,18 @@ namespace PhotoFrame
 
                 FrameSettings.LastSyncUtc = DateTime.UtcNow;
 
+                FrameHeartbeat.Write(
+                    $"проверка завершена: кадров {syncResult.TotalPhotoCount}, "
+                    + $"новых {syncResult.DownloadedCount}, убрано {syncResult.RemovedCount}");
+
+                // Список перечитывается вне потока отрисовки, и лишь готовый набор
+                // применяется в нём: иначе тысячи проверок файлов подряд заметны глазом.
+                List<string> loadedPhotoPaths = await Task.Run(_photoSource.GetPhotoPaths)
+                    .ConfigureAwait(true);
+
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
-                    LoadPhotosFromCache();
+                    ApplyLoadedPhotos(loadedPhotoPaths);
                     ShowToast(DescribeSyncResult(syncResult));
                 });
             }
@@ -1777,9 +1819,27 @@ namespace PhotoFrame
         /// с экрана настроек или из сведений о файле пересоздавал бы порядок, и шаг назад
         /// приводил к кадрам, которых в этом показе ещё не было.
         /// </remarks>
-        private void LoadPhotosFromCache()
+        /// <summary>
+        /// Перечитывает набор кадров, не занимая поток отрисовки.
+        /// </summary>
+        /// <remarks>
+        /// Список собирается с диска: два манифеста и проверка существования каждого
+        /// файла — при четырёх тысячах кадров это тысячи обращений к памяти устройства.
+        /// Измерено на рамке: одно только перечисление каталога с 3790 файлами занимает
+        /// 0,66 секунды, а через File.Exists выходит заметно дольше. В потоке отрисовки
+        /// это и выглядело подтормаживанием — особенно после сна, когда просроченная
+        /// проверка источников сваливала всю работу в одну минуту.
+        /// </remarks>
+        private async Task LoadPhotosFromCacheAsync()
         {
-            List<string> loadedPhotoPaths = _photoSource.GetPhotoPaths();
+            List<string> loadedPhotoPaths = await Task.Run(_photoSource.GetPhotoPaths)
+                .ConfigureAwait(true);
+
+            ApplyLoadedPhotos(loadedPhotoPaths);
+        }
+
+        private void ApplyLoadedPhotos(List<string> loadedPhotoPaths)
+        {
 
             // Сравнение строит множество из трёх тысяч путей, поэтому считается один раз.
             bool sameSet = HasSamePhotoSet(loadedPhotoPaths);
@@ -1819,7 +1879,10 @@ namespace PhotoFrame
                         ShufflePhotoOrder(_localPhotoPaths);
                     }
 
-                    SlideshowStateStore.SaveOrder(_localPhotoPaths);
+                    // Четыре тысячи строк на диск — только если порядок и правда стал
+                    // другим. Прежде файл переписывался при любом изменении набора,
+                    // даже когда с сервера пропала пара кадров, а очередь осталась той же.
+                    SlideshowStateStore.SaveOrderIfChanged(_localPhotoPaths);
                 }
             }
 
@@ -1890,7 +1953,7 @@ namespace PhotoFrame
 
             // Порядок не пересоздаётся на новом круге: иначе шаг назад после последнего
             // кадра уводил бы в уже другую случайную последовательность. Новый порядок
-            // появляется вместе с новым набором снимков — см. LoadPhotosFromCache.
+            // появляется вместе с новым набором снимков — см. ApplyLoadedPhotos.
             ShowPhotoAt(_currentPhotoIndex + 1);
         }
 

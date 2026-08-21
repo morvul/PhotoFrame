@@ -31,23 +31,70 @@ namespace PhotoFrame
             // Копия: список показа продолжает жить своей жизнью, пока идёт запись.
             var savedPaths = new List<string>(photoPaths);
 
-            _ = Task.Run(() =>
-            {
-                string temporaryPath = OrderFilePath + ".tmp";
+            _ = Task.Run(() => WriteOrder(savedPaths, onlyIfChanged: false));
+        }
 
-                try
+        /// <summary>
+        /// Сохраняет порядок, только если на диске лежит другой.
+        /// </summary>
+        /// <remarks>
+        /// Файл — это четыре тысячи строк, и переписывать его при каждом изменении
+        /// набора незачем: с сервера пропала пара кадров, а очередь осталась той же.
+        /// Чтение для сравнения дешевле записи, а рамке лишние обращения к памяти
+        /// устройства не бесплатны.
+        /// </remarks>
+        public static void SaveOrderIfChanged(List<string> photoPaths)
+        {
+            var savedPaths = new List<string>(photoPaths);
+
+            _ = Task.Run(() => WriteOrder(savedPaths, onlyIfChanged: true));
+        }
+
+        private static void WriteOrder(List<string> savedPaths, bool onlyIfChanged)
+        {
+            string temporaryPath = OrderFilePath + ".tmp";
+
+            try
+            {
+                if (onlyIfChanged && IsSameOrderOnDisk(savedPaths))
                 {
-                    File.WriteAllLines(temporaryPath, savedPaths);
-                    File.Move(temporaryPath, OrderFilePath, overwrite: true);
+                    return;
                 }
-                catch (Exception saveFailure) when (
-                    saveFailure is IOException or UnauthorizedAccessException)
+
+                File.WriteAllLines(temporaryPath, savedPaths);
+                File.Move(temporaryPath, OrderFilePath, overwrite: true);
+            }
+            catch (Exception saveFailure) when (
+                saveFailure is IOException or UnauthorizedAccessException)
+            {
+                // Не сохранилось — после перезапуска порядок просто задастся заново.
+                System.Diagnostics.Debug.WriteLine(
+                    $"Порядок показа не сохранён: {saveFailure.Message}");
+            }
+        }
+
+        private static bool IsSameOrderOnDisk(List<string> savedPaths)
+        {
+            if (!File.Exists(OrderFilePath))
+            {
+                return false;
+            }
+
+            string[] existingPaths = File.ReadAllLines(OrderFilePath);
+            if (existingPaths.Length != savedPaths.Count)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < existingPaths.Length; index++)
+            {
+                if (!string.Equals(existingPaths[index], savedPaths[index], StringComparison.Ordinal))
                 {
-                    // Не сохранилось — после перезапуска порядок просто задастся заново.
-                    System.Diagnostics.Debug.WriteLine(
-                        $"Порядок показа не сохранён: {saveFailure.Message}");
+                    return false;
                 }
-            });
+            }
+
+            return true;
         }
 
         /// <summary>Запоминает показанный кадр.</summary>
