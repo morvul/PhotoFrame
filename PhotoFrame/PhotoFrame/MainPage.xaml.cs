@@ -833,7 +833,7 @@ namespace PhotoFrame
             // чтобы первый же взмах дал видимый результат в нужную сторону.
             if (brightness == 0)
             {
-                brightness = stepPercent > 0 ? 50 + stepPercent : 50 + stepPercent;
+                brightness = 50 + stepPercent;
             }
             else
             {

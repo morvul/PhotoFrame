@@ -587,7 +587,7 @@ namespace PhotoFrame
             Preferences.Default.Set(TrashedAlbumFilesKey, string.Join('\n', storedNames));
         }
 
-        /// <summary>True, если ссылка на альбом так и не задана.</summary>
+        /// <summary>True, если ссылка на альбом задана.</summary>
         public static bool IsAlbumConfigured => !string.IsNullOrWhiteSpace(SharedAlbumUrl);
     }
 }
