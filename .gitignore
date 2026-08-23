@@ -5,6 +5,7 @@
 *.userosscache
 *.sln.docstates
 *.suo
+launchSettings.json
 
 # Папки компиляции (Самый важный пункт для MAUI)
 [Db]in/
