@@ -1700,8 +1700,12 @@ namespace PhotoFrame
 
                 // Прогресс приходит только от альбома: локальные папки ничего не качают,
                 // и писать "Загрузка" про обход файлов было бы неправдой.
+                // Просроченная проверка после пробуждения стартует с фонового потока
+                // таймера — без своего SynchronizationContext обратный вызов Progress
+                // придёт туда же, а ShowToast трогает view не из UI-потока.
                 var downloadProgress = new Progress<(int Completed, int Total)>(progress =>
-                    ShowToast($"Загрузка из альбома: {progress.Completed} из {progress.Total}..."));
+                    MainThread.BeginInvokeOnMainThread(() =>
+                        ShowToast($"Загрузка из альбома: {progress.Completed} из {progress.Total}...")));
 
                 AlbumSyncResult syncResult = await _photoSource
                     .RefreshAsync(forceDownload, downloadProgress)
