@@ -363,6 +363,59 @@
                         HorizontalOptions="Start" />
 
                 <!--
+                    Отвязать клип живого фото и оставить обычный снимок. Видна только
+                    на живом фото Immich — у альбома Google так удалённо не поправить.
+                    Подтверждение — тем же приёмом, что и у корзины ниже: действие
+                    необратимое (клип уходит в корзину сервера), и промах по кнопке
+                    не должен стоить его молча.
+                -->
+                <HorizontalStackLayout Spacing="12">
+                    <Button x:Name="DetachLiveButton"
+                            Text="✂"
+                            IsVisible="False"
+                            Clicked="OnDetachLiveClicked"
+                            BackgroundColor="#80000000"
+                            TextColor="White"
+                            FontSize="22"
+                            WidthRequest="56"
+                            HeightRequest="56"
+                            CornerRadius="28" />
+
+                    <Border x:Name="DetachConfirmPanel"
+                            IsVisible="False"
+                            Opacity="0"
+                            TranslationX="-44"
+                            Padding="10"
+                            BackgroundColor="#B0000000"
+                            StrokeThickness="0"
+                            VerticalOptions="Center">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="30" />
+                        </Border.StrokeShape>
+
+                        <HorizontalStackLayout Spacing="10">
+                            <Button Text="✔"
+                                    Clicked="OnConfirmDetachClicked"
+                                    BackgroundColor="#C62828"
+                                    TextColor="White"
+                                    FontSize="22"
+                                    WidthRequest="56"
+                                    HeightRequest="56"
+                                    CornerRadius="28" />
+
+                            <Button Text="✖"
+                                    Clicked="OnCancelDetachClicked"
+                                    BackgroundColor="#333333"
+                                    TextColor="White"
+                                    FontSize="22"
+                                    WidthRequest="56"
+                                    HeightRequest="56"
+                                    CornerRadius="28" />
+                        </HorizontalStackLayout>
+                    </Border>
+                </HorizontalStackLayout>
+
+                <!--
                     Убрать кадр из показа. Подтверждение выезжает вправо от самой кнопки:
                     системный диалог перекрывал снимок целиком, а спросить всё равно надо —
                     промах по кнопке не должен стоить снимка.

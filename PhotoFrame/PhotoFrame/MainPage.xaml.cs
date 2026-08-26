@@ -158,6 +158,9 @@ namespace PhotoFrame
         /// <summary>Кадр, о котором спрашивает выдвинутое подтверждение.</summary>
         private string? _pendingRemovalPath;
 
+        /// <summary>Живое фото, для которого спрашивает подтверждение отвязка клипа.</summary>
+        private string? _pendingDetachPosterPath;
+
         /// <summary>Заставка кадра альбома, чей клип сейчас играет.</summary>
         private string? _currentAlbumVideoPoster;
 
@@ -596,6 +599,7 @@ namespace PhotoFrame
             UpdateTapRevealedOverlays();
             _panelHideTimer.Stop();
             ResetRemoveConfirm();
+            ResetDetachConfirm();
 
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
             ClockDateHost.IsVisible = FrameSettings.ShowDate;
@@ -885,6 +889,15 @@ namespace PhotoFrame
                 return;
             }
 
+            // Мигание останавливаем ещё до отрисовки, а не после подмены кадра.
+            // Иначе окно гонки открыто на всё время перетекания слоёв: ShowNightClockFrameAsync
+            // переставляет _nightBlinkLayer на новый слой ещё до его показа (см. там), а
+            // старый таймер до этой строки продолжал тикать — и успевал подсунуть на свежий,
+            // ещё проявляющийся слой кадр прошлой минуты, пока _nightFrameWithColon и
+            // _nightFrameWithoutColon его не обновили. Разрыв был маленьким, но раз в
+            // сколько-то смен минуты таймер в него попадал.
+            _nightBlinkTimer.Stop();
+
             try
             {
                 string colorHex = FrameSettings.NightClockColorHex;
@@ -914,14 +927,9 @@ namespace PhotoFrame
 
                 await ShowNightClockFrameAsync(renderedFrame).ConfigureAwait(true);
 
-                // Второй кадр этой же минуты, без двоеточия: им и мигаем.
-                //
-                // Мигание на это время останавливается, и ссылка на кадр убирается:
-                // рисуем-то мы поверх него, а первым делом заливаем его чёрным. Пока
-                // этого не было, таймер успевал показать наполовину перерисованный
-                // кадр — на смене минуты по экрану шёл тёмный блик.
-                _nightBlinkTimer.Stop();
-
+                // Второй кадр этой же минуты, без двоеточия: им и мигаем. Ссылка на прежний
+                // кадр убирается здесь же: рисуем-то мы поверх него, а первым делом заливаем
+                // его чёрным.
                 Android.Graphics.Bitmap? colonOffCanvas = _nightFrameWithoutColon;
                 _nightFrameWithoutColon = null;
                 _nightFrameWithColon = renderedFrame;
@@ -1300,7 +1308,9 @@ namespace PhotoFrame
                 UpdateTapRevealedOverlays();
 
                 // Панель ушла вместе с вопросом — считаем это отказом и возвращаем показ.
-                if (ResetRemoveConfirm())
+                // "|", а не "||": оба вопроса не могут висеть разом, но сбросить нужно
+                // оба поля, а не только тот, что проверился первым.
+                if (ResetRemoveConfirm() | ResetDetachConfirm())
                 {
                     _slideshowTimer.Start();
                 }
@@ -2434,6 +2444,147 @@ namespace PhotoFrame
         }
 
         /// <summary>
+        /// Спрашивает подтверждение перед отвязкой клипа: действие небыстро обратимо
+        /// (клип уходит в корзину сервера), и промах по кнопке не должен стоить его молча.
+        /// </summary>
+        private async void OnDetachLiveClicked(object? sender, EventArgs e)
+        {
+            string? posterPath = _currentMotionPoster;
+            if (posterPath is null || _pendingDetachPosterPath is not null)
+            {
+                return;
+            }
+
+            ImmichSlideInfo? slide = ImmichSidecar.Find(posterPath);
+            if (slide is null || slide.ClipAssetId.Length == 0)
+            {
+                return;
+            }
+
+            // Пока висит вопрос, кадр не должен смениться — иначе отвязался бы не тот.
+            _slideshowTimer.Stop();
+            _panelHideTimer.Stop();
+
+            if (_isMotionLooping)
+            {
+                StopMotionLoop(resumeSlideshow: false);
+            }
+
+            _pendingDetachPosterPath = posterPath;
+
+            DetachConfirmPanel.IsVisible = true;
+            await AnimateDetachConfirmAsync(shown: true).ConfigureAwait(true);
+        }
+
+        private async void OnCancelDetachClicked(object? sender, EventArgs e)
+        {
+            await HideDetachConfirmAsync().ConfigureAwait(true);
+
+            _panelHideTimer.Start();
+            _slideshowTimer.Start();
+        }
+
+        /// <summary>
+        /// Отвязывает клип живого фото от снимка на сервере Immich: сам снимок остаётся
+        /// в показе, а секунда движения больше не приезжает и не проигрывается.
+        /// </summary>
+        private async void OnConfirmDetachClicked(object? sender, EventArgs e)
+        {
+            string? posterPath = _pendingDetachPosterPath;
+            await HideDetachConfirmAsync().ConfigureAwait(true);
+
+            if (posterPath is null)
+            {
+                _panelHideTimer.Start();
+                _slideshowTimer.Start();
+                return;
+            }
+
+            ImmichSlideInfo? slide = ImmichSidecar.Find(posterPath);
+            if (slide is null || slide.ClipAssetId.Length == 0)
+            {
+                _panelHideTimer.Start();
+                _slideshowTimer.Start();
+                return;
+            }
+
+            DetachLiveButton.IsEnabled = false;
+
+            ImmichPhotoSource immichSource =
+                IPlatformApplication.Current?.Services.GetService<ImmichPhotoSource>()
+                ?? new ImmichPhotoSource();
+
+            string? failureMessage = await immichSource
+                .TryDetachLivePhotoAsync(slide.AssetId, slide.ClipAssetId)
+                .ConfigureAwait(true);
+
+            DetachLiveButton.IsEnabled = true;
+            _panelHideTimer.Start();
+            _slideshowTimer.Start();
+
+            if (failureMessage is not null)
+            {
+                // Android-живое фото Immich не отвязывает в принципе: клип у него не
+                // отдельный объект, а зашит в тот же файл, что и снимок, и сервер честно
+                // отказывает любому ключу. Запоминаем — кнопка на этом кадре больше
+                // не появится, а вопрос не будет звучать одинаково на каждом таком кадре.
+                if (failureMessage.Contains("android motion photos", StringComparison.OrdinalIgnoreCase))
+                {
+                    ImmichPhotoSource.MarkDetachUnsupported(posterPath);
+                    UpdateTapRevealedOverlays();
+                    ShowToast("Это Android-живое фото: клип зашит в файл, Immich не даёт его отделить");
+                    return;
+                }
+
+                ShowToast($"Не отвязано: {failureMessage}");
+                return;
+            }
+
+            // Сервер уже не знает об этом клипе. Локальный файл и отметку убираем тем же
+            // способом, каким кэш прячет неиграющиеся клипы, — не дожидаясь ближайшей
+            // полной синхронизации, которая и так перепишет список без ссылки на клип.
+            ImmichVideoCache.MarkUnplayable(posterPath);
+
+            _currentMotionPoster = null;
+            UpdateTapRevealedOverlays();
+            ShowToast("Живое фото отключено — снимок остался");
+        }
+
+        private Task AnimateDetachConfirmAsync(bool shown)
+        {
+            return Task.WhenAll(
+                DetachConfirmPanel.TranslateToAsync(shown ? 0 : -44, 0, 180),
+                DetachConfirmPanel.FadeToAsync(shown ? 1 : 0, 180));
+        }
+
+        private async Task HideDetachConfirmAsync()
+        {
+            _pendingDetachPosterPath = null;
+
+            await AnimateDetachConfirmAsync(shown: false).ConfigureAwait(true);
+            DetachConfirmPanel.IsVisible = false;
+        }
+
+        /// <summary>
+        /// Убирает подтверждение без анимации. Возвращает true, если вопрос действительно
+        /// висел, — тогда вызывающий код возобновляет показ.
+        /// </summary>
+        private bool ResetDetachConfirm()
+        {
+            if (_pendingDetachPosterPath is null)
+            {
+                return false;
+            }
+
+            _pendingDetachPosterPath = null;
+
+            DetachConfirmPanel.IsVisible = false;
+            DetachConfirmPanel.Opacity = 0;
+            DetachConfirmPanel.TranslationX = -44;
+            return true;
+        }
+
+        /// <summary>
         /// Снимает повтор: проигрыватель гаснет, на экране остаётся снимок.
         /// </summary>
         /// <param name="resumeSlideshow">
@@ -2520,6 +2671,14 @@ namespace PhotoFrame
             // Повторять нечего, если за кадром нет клипа живого фото.
             MotionRepeatButton.IsVisible = _currentMotionPoster is not null && isDayTime;
             MotionRepeatButton.Opacity = _isMotionLooping ? 1.0 : 0.45;
+
+            // Отвязать можно только живое фото Immich — у альбома Google сервер чужой,
+            // и удалённо там ничего не поправить. Android-версию, для которой сервер уже
+            // отказал, кнопкой больше не предлагаем — второй раз тот же отказ не звучит.
+            DetachLiveButton.IsVisible = _currentMotionPoster is { } motionPoster
+                && isDayTime
+                && MediaTrash.IsImmichPhoto(motionPoster)
+                && !ImmichPhotoSource.IsDetachUnsupported(motionPoster);
 
             PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
             RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;

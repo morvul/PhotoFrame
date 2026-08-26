@@ -34,6 +34,12 @@ namespace PhotoFrame
         /// <summary>Названия отмеченных альбомов — переживают закрытие настроек без сети.</summary>
         private readonly Dictionary<string, string> _immichAlbumNames = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Слепок формы сразу после загрузки — с ним сравнивается текущий при уходе
+        /// со страницы, чтобы решить, есть ли что терять.
+        /// </summary>
+        private string? _loadedSnapshot;
+
         public SettingsPage()
         {
             InitializeComponent();
@@ -261,6 +267,57 @@ namespace PhotoFrame
             }
 
             ShowDiagnostics();
+
+            // Слепок — самым последним: он должен увидеть форму такой же, какой её
+            // увидит человек, а не промежуточное состояние по ходу заполнения.
+            _loadedSnapshot = BuildFormSnapshot();
+        }
+
+        /// <summary>
+        /// Сворачивает видимые поля формы в одну строку для сравнения «было/стало».
+        /// </summary>
+        /// <remarks>
+        /// Список папок и датчиков сюда не входит: их правят на отдельных страницах,
+        /// и те сохраняют выбор сами, минуя кнопки «Сохранить» этой страницы.
+        /// </remarks>
+        private string BuildFormSnapshot()
+        {
+            var orderedAlbumIds = new List<string>(_selectedImmichAlbumIds);
+            orderedAlbumIds.Sort(StringComparer.Ordinal);
+
+            return string.Join('|', new[]
+            {
+                UseSharedAlbumSwitch.IsToggled.ToString(),
+                UseImmichSwitch.IsToggled.ToString(),
+                UseLocalFoldersSwitch.IsToggled.ToString(),
+                ShareUrlEntry.Text ?? string.Empty,
+                ImmichUrlEntry.Text ?? string.Empty,
+                ImmichApiKeyEntry.Text ?? string.Empty,
+                string.Join(',', orderedAlbumIds),
+                ImmichLimitPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+                AlbumVideosSwitch.IsToggled.ToString(),
+                MotionPhotosSwitch.IsToggled.ToString(),
+                RecursiveSwitch.IsToggled.ToString(),
+                AlbumLimitPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+                ShuffleSwitch.IsToggled.ToString(),
+                FillScreenSwitch.IsToggled.ToString(),
+                ShowSensorsSwitch.IsToggled.ToString(),
+                ShowClockSwitch.IsToggled.ToString(),
+                ShowDateSwitch.IsToggled.ToString(),
+                ShowCaptureInfoSwitch.IsToggled.ToString(),
+                PanelRevealPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+                NightModeSwitch.IsToggled.ToString(),
+                NightStartPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+                NightEndPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+                NightColorPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+                DayBrightnessSlider.Value.ToString(CultureInfo.InvariantCulture),
+                NightBrightnessSlider.Value.ToString(CultureInfo.InvariantCulture),
+                NightIntensitySlider.Value.ToString(CultureInfo.InvariantCulture),
+                LaunchOnBootSwitch.IsToggled.ToString(),
+                LaunchDelayPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+                SlideshowIntervalPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+                PollIntervalPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
+            });
         }
 
         private void OnDayBrightnessChanged(object? sender, ValueChangedEventArgs e) =>
@@ -877,6 +934,11 @@ namespace PhotoFrame
 
         private async void OnSaveClicked(object? sender, EventArgs e)
         {
+            if (!await ConfirmImmichConnectionAsync().ConfigureAwait(true))
+            {
+                return;
+            }
+
             ApplySettings();
             SyncRequestedOnReturn = true;
             await Shell.Current.GoToAsync("..");
@@ -884,13 +946,109 @@ namespace PhotoFrame
 
         private async void OnSaveOnlyClicked(object? sender, EventArgs e)
         {
+            if (!await ConfirmImmichConnectionAsync().ConfigureAwait(true))
+            {
+                return;
+            }
+
             ApplySettings();
             await Shell.Current.GoToAsync("..");
         }
 
-        private async void OnBackClicked(object? sender, EventArgs e)
+        /// <summary>
+        /// Проверяет связь с Immich перед сохранением, если источник включён и заполнен.
+        /// </summary>
+        /// <remarks>
+        /// Тем же запросом, что и кнопка «Список альбомов», только без явного нажатия:
+        /// адрес, введённый с опечаткой, иначе обнаружился бы только на следующей
+        /// синхронизации, когда экран настроек уже закрыт и опечатку не с чем сравнить.
+        /// Отказ не блокирует сохранение — спрашивает и оставляет решение человеку:
+        /// сервер мог быть просто выключен на минуту.
+        /// </remarks>
+        /// <returns>False — остаться на странице; сохранение не продолжается.</returns>
+        private async Task<bool> ConfirmImmichConnectionAsync()
         {
-            // Уходим без сохранения: настройки применяются только кнопками сохранения.
+            if (!UseImmichSwitch.IsToggled)
+            {
+                return true;
+            }
+
+            string serverUrl = ImmichUrlEntry.Text ?? string.Empty;
+            string apiKey = (ImmichApiKeyEntry.Text ?? string.Empty).Trim();
+
+            if (serverUrl.Trim().Length == 0 || apiKey.Length == 0)
+            {
+                // Пустое поле — отдельная и уже видимая на экране проблема, не эта.
+                return true;
+            }
+
+            ImmichStatusLabel.Text = "Проверяем связь с Immich…";
+
+            ImmichPhotoSource immichSource =
+                IPlatformApplication.Current?.Services.GetService<ImmichPhotoSource>()
+                ?? new ImmichPhotoSource();
+
+            string? failureMessage = await immichSource
+                .TryCheckConnectionAsync(serverUrl, apiKey)
+                .ConfigureAwait(true);
+
+            if (failureMessage is null)
+            {
+                ImmichStatusLabel.Text = "Связь с Immich есть";
+
+                // Проверка только что подтвердила связь напрямую — пауза от прежних
+                // неудач (если она набралась) больше не про действительность.
+                ImmichVideoCache.ResetAvailability();
+                return true;
+            }
+
+            ImmichStatusLabel.Text = failureMessage;
+
+            bool saveAnyway = await DisplayAlert(
+                "Immich не отвечает",
+                failureMessage,
+                "Сохранить всё равно",
+                "Остаться");
+
+            if (saveAnyway)
+            {
+                // Только что убедились сами: сервер недоступен. Первому живому фото
+                // незачем узнавать то же самое ещё раз тем же долгим таймаутом.
+                ImmichVideoCache.MarkServerUnavailable();
+            }
+
+            return saveAnyway;
+        }
+
+        private void OnBackClicked(object? sender, EventArgs e) => _ = GoBackWithConfirmationAsync();
+
+        /// <summary>
+        /// Аппаратная «назад» на Android идёт мимо кнопки на экране, поэтому спрашивать
+        /// о несохранённых правках нужно и здесь — тем же способом.
+        /// </summary>
+        protected override bool OnBackButtonPressed()
+        {
+            _ = GoBackWithConfirmationAsync();
+            return true;
+        }
+
+        /// <summary>Спрашивает о потере правок, если форма отличается от загруженной.</summary>
+        private async Task GoBackWithConfirmationAsync()
+        {
+            if (_loadedSnapshot is not null && BuildFormSnapshot() != _loadedSnapshot)
+            {
+                bool discard = await DisplayAlert(
+                    "Несохранённые изменения",
+                    "Уйти без сохранения правок?",
+                    "Уйти",
+                    "Остаться");
+
+                if (!discard)
+                {
+                    return;
+                }
+            }
+
             await Shell.Current.GoToAsync("..");
         }
     }
