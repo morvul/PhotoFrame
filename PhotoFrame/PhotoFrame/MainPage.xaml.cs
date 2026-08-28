@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
@@ -1875,28 +1876,41 @@ namespace PhotoFrame
 
             if (!sameSet)
             {
-                _localPhotoPaths = loadedPhotoPaths;
-                _currentPhotoIndex = -1;
-
-                // При первой загрузке пробуем продолжить с того же кадра и в том же
-                // порядке, что были до выключения рамки.
-                if (!_hasTriedRestoringOrder)
+                if (_currentPhotoIndex >= 0 && _localPhotoPaths.Count > 0)
                 {
-                    _hasTriedRestoringOrder = true;
-                    restoredIndex = SlideshowStateStore.TryRestoreOrder(_localPhotoPaths);
+                    // Показ уже идёт: набор всего лишь обновился (кадры добавились или
+                    // пропали), а не загрузился впервые. Полная пересортировка тут же
+                    // отправила бы уже показанные кадры обратно вперёд по очереди — и
+                    // они замелькали бы снова. Поэтому уже показанная часть списка
+                    // остаётся как есть, а новые кадры лишь дополняют ещё не показанный
+                    // хвост.
+                    MergeLoadedPhotos(loadedPhotoPaths);
                 }
-
-                if (restoredIndex < 0)
+                else
                 {
-                    if (FrameSettings.ShufflePhotos)
+                    _localPhotoPaths = loadedPhotoPaths;
+                    _currentPhotoIndex = -1;
+
+                    // При первой загрузке пробуем продолжить с того же кадра и в том же
+                    // порядке, что были до выключения рамки.
+                    if (!_hasTriedRestoringOrder)
                     {
-                        ShufflePhotoOrder(_localPhotoPaths);
+                        _hasTriedRestoringOrder = true;
+                        restoredIndex = SlideshowStateStore.TryRestoreOrder(_localPhotoPaths);
                     }
 
-                    // Четыре тысячи строк на диск — только если порядок и правда стал
-                    // другим. Прежде файл переписывался при любом изменении набора,
-                    // даже когда с сервера пропала пара кадров, а очередь осталась той же.
-                    SlideshowStateStore.SaveOrderIfChanged(_localPhotoPaths);
+                    if (restoredIndex < 0)
+                    {
+                        if (FrameSettings.ShufflePhotos)
+                        {
+                            ShufflePhotoOrder(_localPhotoPaths);
+                        }
+
+                        // Четыре тысячи строк на диск — только если порядок и правда стал
+                        // другим. Прежде файл переписывался при любом изменении набора,
+                        // даже когда с сервера пропала пара кадров, а очередь осталась той же.
+                        SlideshowStateStore.SaveOrderIfChanged(_localPhotoPaths);
+                    }
                 }
             }
 
@@ -1939,6 +1953,49 @@ namespace PhotoFrame
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Встраивает обновлённый набор кадров в уже идущий показ, не трогая
+        /// показанную часть очереди.
+        /// </summary>
+        /// <remarks>
+        /// Очередь режется на «уже показано» (индексы 0.._currentPhotoIndex, включая
+        /// текущий кадр) и «ещё не показано» (всё, что дальше). Пропавшие из источника
+        /// кадры просто выпадают из обеих частей, а новые добавляются в конец ещё не
+        /// показанной части — так они попадут в показ не раньше, чем дойдёт очередь, и
+        /// не столкнут уже виденные кадры на повтор.
+        /// </remarks>
+        private void MergeLoadedPhotos(List<string> loadedPhotoPaths)
+        {
+            var oldPaths = new HashSet<string>(_localPhotoPaths, StringComparer.OrdinalIgnoreCase);
+            var loadedSet = new HashSet<string>(loadedPhotoPaths, StringComparer.OrdinalIgnoreCase);
+
+            List<string> shownPart = _localPhotoPaths
+                .Take(_currentPhotoIndex + 1)
+                .Where(path => loadedSet.Contains(path))
+                .ToList();
+
+            List<string> remainingPart = _localPhotoPaths
+                .Skip(_currentPhotoIndex + 1)
+                .Where(path => loadedSet.Contains(path))
+                .ToList();
+
+            List<string> newPhotos = loadedPhotoPaths
+                .Where(path => !oldPaths.Contains(path))
+                .ToList();
+
+            if (FrameSettings.ShufflePhotos)
+            {
+                ShufflePhotoOrder(newPhotos);
+            }
+
+            remainingPart.AddRange(newPhotos);
+
+            _localPhotoPaths = shownPart.Concat(remainingPart).ToList();
+            _currentPhotoIndex = shownPart.Count - 1;
+
+            SlideshowStateStore.SaveOrderIfChanged(_localPhotoPaths);
         }
 
         /// <summary>Перемешивание Фишера — Йетса по месту.</summary>
