@@ -40,15 +40,7 @@
         </Grid>
 
         <Grid Grid.Row="1" BackgroundColor="Black">
-            <local:VideoPlayerView x:Name="CameraPlayer"
-                                   HorizontalOptions="Fill"
-                                   VerticalOptions="Fill" />
-
-            <!--
-                Резерв на случай, если живой поток со звуком не поднимается (см.
-                GetCameraStreamUrlAsync): периодически обновляемый снимок без звука,
-                но не требующий ffmpeg на стороне Home Assistant.
-            -->
+            <!-- Снимок камеры, обновляемый по таймеру (см. GetCameraSnapshotAsync). -->
             <Image x:Name="SnapshotImage"
                    IsVisible="False"
                    Aspect="AspectFit"

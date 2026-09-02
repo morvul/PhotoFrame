@@ -9,13 +9,10 @@ using Microsoft.Maui.Controls;
 namespace PhotoFrame
 {
     /// <summary>
-    /// Живой поток камеры Home Assistant, со звуком. Можно переключаться между камерами.
+    /// Снимки камер Home Assistant, обновляемые по таймеру.
     /// </summary>
     /// <remarks>
-    /// Если живой поток не поднимается (см. <see cref="HomeAssistantClient.GetCameraStreamUrlAsync"/> —
-    /// у облачных камер вроде Tuya подписанная ссылка RTSP может истечь раньше, чем до неё
-    /// доберётся ffmpeg), страница сама переходит на резерв: снимок камеры, обновляемый по
-    /// таймеру. Без звука и с задержкой около секунды, но не зависит от того же RTSP-адреса.
+    /// Загружает снимок камеры и обновляет его каждую ~1.2 секунды. Можно переключаться между камерами.
     /// </remarks>
     public partial class CameraViewPage : ContentPage
     {
@@ -36,7 +33,6 @@ namespace PhotoFrame
         {
             InitializeComponent();
 
-            CameraPlayer.PlaybackFailed += OnPlaybackFailed;
             _snapshotTimer.Elapsed += OnSnapshotTimerElapsed;
         }
 
@@ -73,7 +69,7 @@ namespace PhotoFrame
             NextCameraButton.IsVisible = _cameraEntityIds.Count > 1;
             _cameraIndex = 0;
 
-            await PlayCurrentCameraAsync().ConfigureAwait(true);
+            PlayCurrentCamera();
         }
 
         protected override void OnDisappearing()
@@ -81,43 +77,19 @@ namespace PhotoFrame
             base.OnDisappearing();
 
             StopSnapshotPolling();
-
-            // Отдаём декодер сразу: страница закрыта, а рамке скоро снова понадобится
-            // ExoPlayer под слайд-шоу.
-            CameraPlayer.Stop();
         }
 
-        private async Task PlayCurrentCameraAsync()
+        private void PlayCurrentCamera()
         {
             string entityId = _cameraEntityIds[_cameraIndex];
 
-            StopSnapshotPolling();
-            SnapshotImage.IsVisible = false;
-            CameraPlayer.Stop();
             HeaderLabel.Text = $"Камера ({_cameraIndex + 1}/{_cameraEntityIds.Count}) — {entityId}";
-            ShowStatus("Подключение...");
 
-            try
-            {
-                string streamUrl = await _client.GetCameraStreamUrlAsync(entityId).ConfigureAwait(true);
-
-                CameraPlayer.IsMuted = false;
-                CameraPlayer.SourcePath = streamUrl;
-                CameraPlayer.Play();
-                StatusLabel.IsVisible = false;
-            }
-            catch (PhotoSourceException streamFailure)
-            {
-                FrameLog.Warn(
-                    $"{entityId}: живой поток не открылся ({streamFailure.Message}), "
-                    + "переходим на снимки");
-                StartSnapshotPolling(entityId);
-            }
+            StartSnapshotPolling(entityId);
         }
 
         private void StartSnapshotPolling(string entityId)
         {
-            CameraPlayer.Stop();
             SnapshotImage.IsVisible = true;
             ShowStatus("Загрузка снимка...");
 
@@ -181,17 +153,7 @@ namespace PhotoFrame
             StatusLabel.IsVisible = true;
         }
 
-        private void OnPlaybackFailed(object? sender, EventArgs e)
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                string entityId = _cameraEntityIds[_cameraIndex];
-                FrameLog.Warn($"{entityId}: видео не воспроизвелось, переходим на снимки");
-                StartSnapshotPolling(entityId);
-            });
-        }
-
-        private async void OnNextCameraClicked(object? sender, EventArgs e)
+        private void OnNextCameraClicked(object? sender, EventArgs e)
         {
             if (_cameraEntityIds.Count == 0)
             {
@@ -199,7 +161,7 @@ namespace PhotoFrame
             }
 
             _cameraIndex = (_cameraIndex + 1) % _cameraEntityIds.Count;
-            await PlayCurrentCameraAsync().ConfigureAwait(true);
+            PlayCurrentCamera();
         }
 
         private async void OnBackClicked(object? sender, EventArgs e)

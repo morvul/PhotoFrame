@@ -1,9 +1,7 @@
 using Android.Views;
 using Android.Widget;
 using AndroidX.Media3.Common;
-using AndroidX.Media3.DataSource;
 using AndroidX.Media3.ExoPlayer;
-using AndroidX.Media3.ExoPlayer.Source;
 using AndroidX.Media3.UI;
 using Microsoft.Maui.Handlers;
 
@@ -133,30 +131,9 @@ namespace PhotoFrame
             _layers[layerIndex] = CreateLayer(layer.View, layerIndex);
         }
 
-        /// <summary>
-        /// Таймаут HTTP-запросов для сетевого источника (поток камеры Home Assistant).
-        /// </summary>
-        /// <remarks>
-        /// Восемь секунд, зашитых в ExoPlayer по умолчанию, не хватает на первый запрос
-        /// плейлиста: Home Assistant в этот момент только запускает ffmpeg и ждёт первый
-        /// кадр от камеры. На локальные клипы не влияет — для файлов HTTP не используется.
-        /// </remarks>
-        private const int NetworkTimeoutMilliseconds = 20000;
-
         private Layer CreateLayer(PlayerView view, int index)
         {
-            var httpDataSourceFactory = new DefaultHttpDataSource.Factory()
-                .SetConnectTimeoutMs(NetworkTimeoutMilliseconds)
-                .SetReadTimeoutMs(NetworkTimeoutMilliseconds);
-
-            var dataSourceFactory = new DefaultDataSource.Factory(Context, httpDataSourceFactory);
-
-            var mediaSourceFactory = new DefaultMediaSourceFactory(Context)!
-                .SetDataSourceFactory(dataSourceFactory);
-
-            IExoPlayer player = new ExoPlayerBuilder(Context)
-                .SetMediaSourceFactory(mediaSourceFactory)
-                .Build()!;
+            IExoPlayer player = new ExoPlayerBuilder(Context).Build()!;
             var listener = new PlaybackListener(this, index);
 
             player.AddListener(listener);
@@ -304,27 +281,11 @@ namespace PhotoFrame
             // Готовим на невидимом слое: на виду пока прежний кадр или сам снимок.
             Layer target = handler.Back;
 
-            target.Player.SetMediaItem(MediaItem.FromUri(ResolveMediaUri(view.SourcePath!)));
+            using var videoFile = new Java.IO.File(view.SourcePath!);
+            target.Player.SetMediaItem(MediaItem.FromUri(Android.Net.Uri.FromFile(videoFile)!));
             target.Player.RepeatMode = view.IsLooping ? RepeatModeOne : RepeatModeOff;
             target.Player.Volume = view.IsMuted ? 0f : 1f;
             target.Player.Prepare();
-        }
-
-        /// <summary>
-        /// Локальный клип оборачивается в file://, а адрес потока камеры Home Assistant
-        /// отдаётся как есть: ExoPlayer сам открывает HTTP(S) без лишних заголовков,
-        /// ссылка на HLS уже несёт токен доступа в собственном пути.
-        /// </summary>
-        private static Android.Net.Uri ResolveMediaUri(string path)
-        {
-            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-                || path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            {
-                return Android.Net.Uri.Parse(path)!;
-            }
-
-            using var videoFile = new Java.IO.File(path);
-            return Android.Net.Uri.FromFile(videoFile)!;
         }
 
         private static void MapIsLooping(VideoPlayerViewHandler handler, VideoPlayerView view)
