@@ -1389,6 +1389,17 @@ namespace PhotoFrame
             await Shell.Current.GoToAsync(nameof(SettingsPage));
         }
 
+        private async void OnCameraViewClicked(object? sender, EventArgs e)
+        {
+            if (_isLeavingToAnotherPage)
+            {
+                return;
+            }
+
+            _isLeavingToAnotherPage = true;
+            await Shell.Current.GoToAsync(nameof(CameraViewPage));
+        }
+
         private async void OnFileInfoClicked(object? sender, EventArgs e)
         {
             if (_localPhotoPaths.Count == 0 || _isLeavingToAnotherPage)
@@ -2720,6 +2731,10 @@ namespace PhotoFrame
 
             PhotoCounterHost.IsVisible =
                 _localPhotoPaths.Count > 0 && _currentPhotoIndex >= 0 && isDayTime && panelVisible;
+
+            // Живой поток камеры не про текущий кадр, поэтому доступен и ночью — только
+            // от того, настроен ли вообще Home Assistant.
+            CameraButtonHost.IsVisible = HomeAssistantClient.IsConfigured && panelVisible;
 
             // Ночью показывать нечего: обновлять, смотреть сведения и убирать кадр —
             // всё это про снимок, которого на экране нет. Настройки остаются.

@@ -78,6 +78,12 @@
 		<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.90" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.10" />
 		<PackageReference Include="Xamarin.AndroidX.Media3.ExoPlayer" Version="1.10.1.1" />
+		<!--
+			Ядро ExoPlayer грузит фабрику источника по типу контента через reflection,
+			и для HLS (плейлист камеры Home Assistant) ей нужен отдельный от ядра модуль —
+			без него Class.forName валится ClassNotFoundException прямо в рантайме.
+		-->
+		<PackageReference Include="Xamarin.AndroidX.Media3.ExoPlayer.Hls" Version="1.10.1.1" />
 		<PackageReference Include="Xamarin.AndroidX.Media3.Ui" Version="1.10.1.1" />
 	</ItemGroup>
 

@@ -93,6 +93,28 @@
               Margin="0,0,26,14" />
 
         <!--
+            Камера Home Assistant. Свой угол, а не внутри ControlPanel: та лежит у верхнего
+            края экрана, а кнопке место снизу слева. От подписи о съёмке отделена запасом
+            по высоте — обе появляются по одному касанию и не должны наезжать друг на друга.
+            Видна и днём, и в ночном режиме: живой поток камеры не привязан к текущему кадру.
+        -->
+        <Grid x:Name="CameraButtonHost"
+              IsVisible="False"
+              HorizontalOptions="Start"
+              VerticalOptions="End"
+              Margin="20,0,0,56">
+            <Button x:Name="CameraViewButton"
+                    Text="📷"
+                    Clicked="OnCameraViewClicked"
+                    BackgroundColor="#80000000"
+                    TextColor="White"
+                    FontSize="22"
+                    WidthRequest="56"
+                    HeightRequest="56"
+                    CornerRadius="28" />
+        </Grid>
+
+        <!--
             Ночной режим: вместо слайд-шоу — крупные приглушённые часы на чёрном.
             InputTransparent, чтобы касание всё так же доходило до слоя жестов ниже
             и панель управления оставалась доступной.

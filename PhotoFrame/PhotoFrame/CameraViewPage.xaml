@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:PhotoFrame"
+             x:Class="PhotoFrame.CameraViewPage"
+             Title="Камера"
+             BackgroundColor="Black"
+             Shell.NavBarIsVisible="False">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Padding="24,18" BackgroundColor="#1E1E1E">
+            <Button Grid.Column="0"
+                    Text="← Назад"
+                    Clicked="OnBackClicked"
+                    BackgroundColor="Transparent"
+                    TextColor="#4FC3F7"
+                    FontSize="18"
+                    Padding="0" />
+            <Label x:Name="HeaderLabel"
+                   Grid.Column="1"
+                   Text="Камера"
+                   TextColor="White"
+                   FontSize="22"
+                   FontAttributes="Bold"
+                   LineBreakMode="TailTruncation"
+                   HorizontalOptions="Center"
+                   VerticalOptions="Center" />
+
+            <!-- Видна, только если камер больше одной: переключаться не на что. -->
+            <Button x:Name="NextCameraButton"
+                    Grid.Column="2"
+                    IsVisible="False"
+                    Text="След. камера →"
+                    Clicked="OnNextCameraClicked"
+                    BackgroundColor="Transparent"
+                    TextColor="#4FC3F7"
+                    FontSize="18"
+                    Padding="0" />
+        </Grid>
+
+        <Grid Grid.Row="1" BackgroundColor="Black">
+            <local:VideoPlayerView x:Name="CameraPlayer"
+                                   HorizontalOptions="Fill"
+                                   VerticalOptions="Fill" />
+
+            <!--
+                Резерв на случай, если живой поток со звуком не поднимается (см.
+                GetCameraStreamUrlAsync): периодически обновляемый снимок без звука,
+                но не требующий ffmpeg на стороне Home Assistant.
+            -->
+            <Image x:Name="SnapshotImage"
+                   IsVisible="False"
+                   Aspect="AspectFit"
+                   HorizontalOptions="Fill"
+                   VerticalOptions="Fill" />
+
+            <!-- Пока поток не открылся или камера недоступна — сюда пишется, что происходит. -->
+            <Label x:Name="StatusLabel"
+                   TextColor="White"
+                   FontSize="18"
+                   HorizontalOptions="Center"
+                   VerticalOptions="Center"
+                   HorizontalTextAlignment="Center"
+                   LineBreakMode="WordWrap"
+                   MaximumWidthRequest="600" />
+        </Grid>
+    </Grid>
+</ContentPage>
