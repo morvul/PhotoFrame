@@ -5,7 +5,8 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Net.WebSockets;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -39,9 +40,6 @@ namespace PhotoFrame
         private const string FahrenheitUnit = "°F";
 
         private const string CelsiusUnit = "°C";
-
-        /// <summary>Сколько ждать весь обмен по WebSocket, от подключения до ответа камеры.</summary>
-        private static readonly TimeSpan WebSocketTimeout = TimeSpan.FromSeconds(15);
 
         private readonly HttpClient _httpClient;
 
@@ -208,6 +206,227 @@ namespace PhotoFrame
         }
 
         /// <summary>
+        /// Способ показа камеры, которым сама Home Assistant считает нужным её отдавать
+        /// панели — "hls" или "web_rtc". Null, если сущность не сообщает об этом вовсе.
+        /// </summary>
+        /// <remarks>
+        /// Диагностика, а не часть показа камеры: перед тем как писать полноценный
+        /// WebRTC-клиент, дешевле спросить у самой Home Assistant, предлагает ли она
+        /// WebRTC для конкретной сущности, чем выяснять это перебором.
+        /// </remarks>
+        public async Task<string?> GetCameraFrontendStreamTypeAsync(
+            string entityId, CancellationToken cancellationToken = default)
+        {
+            EnsureConfigured();
+
+            using JsonDocument stateDocument = await GetJsonAsync(
+                "/api/states/" + Uri.EscapeDataString(entityId), cancellationToken)
+                .ConfigureAwait(false);
+
+            return stateDocument.RootElement.TryGetProperty("attributes", out JsonElement attributes)
+                ? ReadStringAttribute(attributes, "frontend_stream_type")
+                : null;
+        }
+
+        /// <summary>
+        /// Живой поток камеры без звука — кадры MJPEG по одному соединению, а не
+        /// снимок на каждый запрос.
+        /// </summary>
+        /// <remarks>
+        /// В отличие от HLS-плейлиста через WebSocket (camera/stream), который у
+        /// облачных камер вроде Tuya требует поднять RTSP через ffmpeg на стороне Home
+        /// Assistant — и там же и рвётся, если облако отдаёт подписанную ссылку с
+        /// опозданием, — MJPEG для большинства интеграций строится тем же способом,
+        /// что и обычный снимок: Home Assistant просто повторяет тот же запрос кадра
+        /// внутри одного долгого HTTP-ответа. Соединение одно на весь просмотр, а не
+        /// одно на кадр, как у ручного опроса <see cref="GetCameraSnapshotAsync"/>.
+        /// </remarks>
+        public async IAsyncEnumerable<byte[]> StreamCameraMjpegFramesAsync(
+            string entityId,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            EnsureConfigured();
+
+            using HttpResponseMessage response = await SendGetAsync(
+                "/api/camera_proxy_stream/" + Uri.EscapeDataString(entityId),
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken).ConfigureAwait(false);
+
+            string? boundary = ReadMultipartBoundary(response.Content.Headers.ContentType);
+            if (boundary is null)
+            {
+                throw new PhotoSourceException(
+                    "Home Assistant не отдаёт поток камеры в формате multipart.");
+            }
+
+            Stream responseStream = await response.Content
+                .ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+
+            await using (responseStream.ConfigureAwait(false))
+            {
+                await foreach (byte[] frame in ReadMjpegFramesAsync(responseStream, boundary, cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    yield return frame;
+                }
+            }
+        }
+
+        private static string? ReadMultipartBoundary(MediaTypeHeaderValue? contentType)
+        {
+            if (contentType is null
+                || !string.Equals(
+                    contentType.MediaType, "multipart/x-mixed-replace", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            foreach (NameValueHeaderValue parameter in contentType.Parameters)
+            {
+                if (string.Equals(parameter.Name, "boundary", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrEmpty(parameter.Value))
+                {
+                    return parameter.Value.Trim('"');
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>Сколько байт читать за раз из сетевого потока.</summary>
+        private const int MjpegReadChunkBytes = 16 * 1024;
+
+        /// <summary>
+        /// Предел на размер одной части multipart-ответа. Один кадр JPEG с камеры
+        /// не бывает такого размера — превышение значит, что поток пошёл не так
+        /// (нет границ вовсе, или граница не совпадает с ожидаемой).
+        /// </summary>
+        private const int MjpegMaxPartBytes = 4 * 1024 * 1024;
+
+        private static readonly byte[] MultipartHeaderTerminator = { 13, 10, 13, 10 };
+
+        /// <summary>
+        /// Разбирает multipart/x-mixed-replace на отдельные кадры JPEG.
+        /// </summary>
+        /// <remarks>
+        /// Кадром считается всё между концом заголовков очередной части и следующей
+        /// границей: у частей MJPEG заголовки короткие (Content-Type, иногда
+        /// Content-Length), и искать конец кадра по самим байтам JPEG не нужно —
+        /// граница уже размечает его точно.
+        /// </remarks>
+        private static async IAsyncEnumerable<byte[]> ReadMjpegFramesAsync(
+            Stream stream,
+            string boundary,
+            [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            byte[] boundaryMarker = Encoding.ASCII.GetBytes("--" + boundary);
+
+            byte[] buffer = new byte[MjpegReadChunkBytes];
+            int length = 0;
+
+            while (true)
+            {
+                if (length == buffer.Length)
+                {
+                    if (buffer.Length >= MjpegMaxPartBytes)
+                    {
+                        throw new PhotoSourceException(
+                            "Поток камеры Home Assistant превысил ожидаемый размер кадра.");
+                    }
+
+                    Array.Resize(ref buffer, buffer.Length * 2);
+                }
+
+                int bytesRead = await stream
+                    .ReadAsync(buffer.AsMemory(length, buffer.Length - length), cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (bytesRead == 0)
+                {
+                    yield break;
+                }
+
+                length += bytesRead;
+
+                while (TryExtractFrame(buffer, length, boundaryMarker, out byte[]? frame, out int consumedLength))
+                {
+                    length -= consumedLength;
+                    Array.Copy(buffer, consumedLength, buffer, 0, length);
+
+                    if (frame is not null)
+                    {
+                        yield return frame;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Пытается вырезать один кадр из начала буфера. Возвращает false, если
+        /// в буфере пока нет целой части — ждём следующего чтения из сети.
+        /// </summary>
+        private static bool TryExtractFrame(
+            byte[] buffer, int length, byte[] boundaryMarker, out byte[]? frame, out int consumedLength)
+        {
+            frame = null;
+            consumedLength = 0;
+
+            int firstBoundaryIndex = IndexOf(buffer, length, boundaryMarker, 0);
+            if (firstBoundaryIndex < 0)
+            {
+                return false;
+            }
+
+            int partStart = firstBoundaryIndex + boundaryMarker.Length;
+
+            int headerEnd = IndexOf(buffer, length, MultipartHeaderTerminator, partStart);
+            int nextBoundaryIndex = IndexOf(buffer, length, boundaryMarker, partStart);
+
+            if (headerEnd < 0 || nextBoundaryIndex < 0)
+            {
+                return false;
+            }
+
+            int frameStart = headerEnd + MultipartHeaderTerminator.Length;
+            int frameEnd = nextBoundaryIndex;
+
+            // Перед следующей границей стоит CRLF, который в сам кадр не входит.
+            while (frameEnd > frameStart && (buffer[frameEnd - 1] == 10 || buffer[frameEnd - 1] == 13))
+            {
+                frameEnd--;
+            }
+
+            if (frameEnd > frameStart)
+            {
+                frame = new byte[frameEnd - frameStart];
+                Array.Copy(buffer, frameStart, frame, 0, frame.Length);
+            }
+
+            consumedLength = nextBoundaryIndex;
+            return true;
+        }
+
+        private static int IndexOf(byte[] haystack, int haystackLength, byte[] needle, int startIndex)
+        {
+            int lastPossibleStart = haystackLength - needle.Length;
+            for (int i = startIndex; i <= lastPossibleStart; i++)
+            {
+                int j = 0;
+                while (j < needle.Length && haystack[i + j] == needle[j])
+                {
+                    j++;
+                }
+
+                if (j == needle.Length)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
         /// Читает значения одним запросом всех состояний, сохраняя порядок выбора.
         /// </summary>
         /// <remarks>
@@ -313,6 +532,11 @@ namespace PhotoFrame
         /// <summary>
         /// Снимок камеры одним запросом — простой JPEG без звука и без задержки ffmpeg.
         /// </summary>
+        /// <remarks>
+        /// Резервный способ показать камеру, если поток из <see cref="StreamCameraMjpegFramesAsync"/>
+        /// не открылся вовсе: снимок для облачных интеграций (Tuya и подобные) обычно идёт
+        /// отдельным лёгким запросом к их облаку и не зависит от того, поднимается ли поток.
+        /// </remarks>
         public async Task<byte[]> GetCameraSnapshotAsync(
             string entityId, CancellationToken cancellationToken = default)
         {
@@ -325,8 +549,17 @@ namespace PhotoFrame
             return await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        private Task<HttpResponseMessage> SendGetAsync(
+            string relativePath, CancellationToken cancellationToken) =>
+            SendGetAsync(relativePath, HttpCompletionOption.ResponseContentRead, cancellationToken);
+
+        /// <remarks>
+        /// <paramref name="completionOption"/> — <see cref="HttpCompletionOption.ResponseHeadersRead"/>
+        /// нужен для потока камеры: тело там не заканчивается никогда, и ждать его
+        /// целиком (обычное поведение GetAsync) означало бы никогда не вернуться из вызова.
+        /// </remarks>
         private async Task<HttpResponseMessage> SendGetAsync(
-            string relativePath, CancellationToken cancellationToken)
+            string relativePath, HttpCompletionOption completionOption, CancellationToken cancellationToken)
         {
             // Клиент — общий на всё приложение и живёт дольше настроек: адрес и токен
             // могли поменять на экране настроек уже после его создания, поэтому
@@ -338,7 +571,7 @@ namespace PhotoFrame
             try
             {
                 response = await _httpClient
-                    .GetAsync(BaseUrl + relativePath, cancellationToken)
+                    .GetAsync(BaseUrl + relativePath, completionOption, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (HttpRequestException networkFailure)

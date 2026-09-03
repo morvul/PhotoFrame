@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using Microsoft.Maui.ApplicationModel;
@@ -9,16 +10,22 @@ using Microsoft.Maui.Controls;
 namespace PhotoFrame
 {
     /// <summary>
-    /// Снимки камер Home Assistant, обновляемые по таймеру.
+    /// Живой поток камеры Home Assistant без звука. Можно переключаться между камерами.
     /// </summary>
     /// <remarks>
-    /// Загружает снимок камеры и обновляет его по таймеру, период которого задаётся в
-    /// настройках рамки (см. <see cref="FrameSettings.CameraSnapshotIntervalMilliseconds"/>).
-    /// Можно переключаться между камерами.
+    /// Кадры MJPEG идут одним долгим соединением (см.
+    /// <see cref="HomeAssistantClient.StreamCameraMjpegFramesAsync"/>) — в отличие от ручного
+    /// опроса снимка, здесь Home Assistant сам решает, как часто отдавать новый кадр внутри
+    /// уже открытого запроса. Если поток не открылся или обрывается на середине просмотра,
+    /// страница сама переходит на резерв: снимок камеры, обновляемый по таймеру с периодом
+    /// из настроек рамки (см. <see cref="FrameSettings.CameraSnapshotIntervalMilliseconds"/>).
     /// </remarks>
     public partial class CameraViewPage : ContentPage
     {
         private const int SnapshotCrossfadeMilliseconds = 300;
+
+        /// <summary>Сколько ждать первый кадр живого потока, прежде чем перейти на резерв.</summary>
+        private const int MjpegFirstFrameTimeoutMilliseconds = 20000;
 
         private readonly HomeAssistantClient _client;
 
@@ -39,6 +46,12 @@ namespace PhotoFrame
         /// <summary>Какой слой сейчас на виду — на него и не пишем следующий кадр.</summary>
         private bool _snapshotIntoTopLayer;
 
+        /// <summary>
+        /// Токен текущей попытки живого потока. Замена другим экземпляром — это и есть
+        /// «останови прошлый поток»: старый цикл видит несовпадение и завершается сам.
+        /// </summary>
+        private CancellationTokenSource? _mjpegStreamCts;
+
         public CameraViewPage()
         {
             InitializeComponent();
@@ -52,7 +65,7 @@ namespace PhotoFrame
             _snapshotTimer.Elapsed += OnSnapshotTimerElapsed;
         }
 
-        protected override async void OnAppearing()
+        protected override void OnAppearing()
         {
             base.OnAppearing();
 
@@ -67,6 +80,11 @@ namespace PhotoFrame
 
             ShowStatus("Поиск камер...");
 
+            _ = LoadCamerasAsync();
+        }
+
+        private async Task LoadCamerasAsync()
+        {
             try
             {
                 // Список запрашивается заново при каждом входе на страницу: список камер
@@ -88,6 +106,22 @@ namespace PhotoFrame
             NextCameraButton.IsVisible = _cameraEntityIds.Count > 1;
             _cameraIndex = 0;
 
+            // Временная диагностика перед WebRTC: узнаём, что сама Home Assistant
+            // считает подходящим способом показа для каждой камеры.
+            foreach (string cameraId in _cameraEntityIds)
+            {
+                try
+                {
+                    string? streamType = await _client
+                        .GetCameraFrontendStreamTypeAsync(cameraId).ConfigureAwait(true);
+                    FrameLog.Info($"{cameraId}: frontend_stream_type = {streamType ?? "(нет)"}");
+                }
+                catch (PhotoSourceException lookupFailure)
+                {
+                    FrameLog.Warn($"{cameraId}: frontend_stream_type не прочитан ({lookupFailure.Message})");
+                }
+            }
+
             PlayCurrentCamera();
         }
 
@@ -96,19 +130,131 @@ namespace PhotoFrame
             base.OnDisappearing();
 
             StopSnapshotPolling();
+            StopMjpegStream();
         }
 
         private void PlayCurrentCamera()
         {
             string entityId = _cameraEntityIds[_cameraIndex];
 
-            HeaderLabel.Text = $"Камера ({_cameraIndex + 1}/{_cameraEntityIds.Count}) — {entityId}";
+            StopSnapshotPolling();
+            StopMjpegStream();
 
-            StartSnapshotPolling(entityId);
+            // Слои снимка от прошлой камеры или прошлой попытки не нужны — первый
+            // пришедший кадр сам их сменит через обычный для своего режима переход.
+            SnapshotImage.IsVisible = false;
+            SnapshotImage.Opacity = 0;
+            SnapshotImageTop.IsVisible = false;
+            SnapshotImageTop.Opacity = 0;
+
+            HeaderLabel.Text = $"Камера ({_cameraIndex + 1}/{_cameraEntityIds.Count}) — {entityId}";
+            ShowStatus("Подключение...");
+
+            _ = RunMjpegStreamAsync(entityId);
+        }
+
+        private void StopMjpegStream()
+        {
+            _mjpegStreamCts?.Cancel();
+            _mjpegStreamCts?.Dispose();
+            _mjpegStreamCts = null;
+        }
+
+        /// <summary>
+        /// Держит соединение открытым и показывает кадры по мере прихода. Если поток не
+        /// открылся или обрывается на середине, страница сама переходит на резерв.
+        /// </summary>
+        private async Task RunMjpegStreamAsync(string entityId)
+        {
+            var cts = new CancellationTokenSource();
+            _mjpegStreamCts = cts;
+
+            // Часы на первый кадр: без этого зависший обмен (заголовки пришли, а кадра
+            // от источника нет) держал бы страницу на «Подключение...» бесконечно —
+            // ни ошибки, ни следа в журнале, только вечная надпись. Дальше, пока кадры
+            // идут, ограничение не нужно — снимаем его после первого же кадра.
+            cts.CancelAfter(MjpegFirstFrameTimeoutMilliseconds);
+            bool receivedFirstFrame = false;
+
+            try
+            {
+                await foreach (byte[] jpegBytes in _client
+                    .StreamCameraMjpegFramesAsync(entityId, cts.Token).ConfigureAwait(true))
+                {
+                    // Пока кадр ждали, могли переключить камеру, уйти со страницы или
+                    // уже перейти на резерв — устаревший кадр показывать не нужно.
+                    if (_mjpegStreamCts != cts)
+                    {
+                        return;
+                    }
+
+                    if (!receivedFirstFrame)
+                    {
+                        receivedFirstFrame = true;
+                        cts.CancelAfter(Timeout.InfiniteTimeSpan);
+                        FrameLog.Info($"{entityId}: поток камеры открылся");
+                    }
+
+                    ShowMjpegFrame(jpegBytes);
+                }
+
+                // Цикл закончился сам — источник закрыл соединение, а не мы его остановили.
+                if (_mjpegStreamCts == cts)
+                {
+                    FrameLog.Warn($"{entityId}: поток камеры закрылся, переходим на снимки");
+                    StartSnapshotPolling(entityId);
+                }
+            }
+            catch (OperationCanceledException) when (!receivedFirstFrame)
+            {
+                // Часы на первый кадр вышли, а не мы сами остановили поток.
+                if (_mjpegStreamCts == cts)
+                {
+                    FrameLog.Warn($"{entityId}: поток камеры не ответил вовремя, переходим на снимки");
+                    StartSnapshotPolling(entityId);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Ушли со страницы, переключили камеру или сами остановили поток — не ошибка.
+            }
+            catch (PhotoSourceException streamFailure)
+            {
+                if (_mjpegStreamCts == cts)
+                {
+                    FrameLog.Warn(
+                        $"{entityId}: поток камеры не открылся ({streamFailure.Message}), "
+                        + "переходим на снимки");
+                    StartSnapshotPolling(entityId);
+                }
+            }
+            finally
+            {
+                if (_mjpegStreamCts == cts)
+                {
+                    _mjpegStreamCts = null;
+                }
+
+                cts.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Показывает кадр живого потока без перехода: кадры и так сменяют друг друга
+        /// часто, а затухание на каждый только смазывало бы картинку.
+        /// </summary>
+        private void ShowMjpegFrame(byte[] jpegBytes)
+        {
+            SnapshotImage.Source = ImageSource.FromStream(() => new MemoryStream(jpegBytes));
+            SnapshotImage.Opacity = 1;
+            SnapshotImage.IsVisible = true;
+            SnapshotImageTop.Opacity = 0;
+            StatusLabel.IsVisible = false;
         }
 
         private void StartSnapshotPolling(string entityId)
         {
+            StopMjpegStream();
             ShowStatus("Загрузка снимка...");
 
             // Слои снимка от предыдущей камеры не нужны: первый кадр новой камеры
@@ -175,7 +321,7 @@ namespace PhotoFrame
         /// </summary>
         /// <remarks>
         /// Кадр пишется в скрытый слой и проступает поверх видимого: подмена картинки
-        /// скачком на быстро обновляющемся снимке камеры выглядела рябью, а не потоком.
+        /// скачком на резервных, редко обновляемых снимках выглядела бы рябью.
         /// </remarks>
         private async Task ShowSnapshotAsync(byte[] jpegBytes)
         {
