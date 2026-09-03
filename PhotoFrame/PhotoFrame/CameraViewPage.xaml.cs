@@ -18,7 +18,9 @@ namespace PhotoFrame
     {
         private const int SnapshotIntervalMilliseconds = 1200;
 
-        private readonly HomeAssistantClient _client = new();
+        private const int SnapshotCrossfadeMilliseconds = 300;
+
+        private readonly HomeAssistantClient _client;
 
         private readonly System.Timers.Timer _snapshotTimer =
             new(SnapshotIntervalMilliseconds) { AutoReset = true };
@@ -29,9 +31,21 @@ namespace PhotoFrame
 
         private string? _snapshotEntityId;
 
+        /// <summary>Идёт ли уже запрос снимка: не даёт следующему тику таймера обогнать его.</summary>
+        private bool _isRefreshingSnapshot;
+
+        /// <summary>Какой слой сейчас на виду — на него и не пишем следующий кадр.</summary>
+        private bool _snapshotIntoTopLayer;
+
         public CameraViewPage()
         {
             InitializeComponent();
+
+            // Тот же клиент, что и у остальных страниц: он держит долгоживущий
+            // HttpClient, и отдельный экземпляр на каждый вход в камеру был бы
+            // лишним подключением, которое никто не закрывает.
+            _client = IPlatformApplication.Current?.Services.GetService<HomeAssistantClient>()
+                ?? new HomeAssistantClient();
 
             _snapshotTimer.Elapsed += OnSnapshotTimerElapsed;
         }
@@ -90,8 +104,11 @@ namespace PhotoFrame
 
         private void StartSnapshotPolling(string entityId)
         {
-            SnapshotImage.IsVisible = true;
             ShowStatus("Загрузка снимка...");
+
+            // Слои снимка от предыдущей камеры не нужны: первый кадр новой камеры
+            // сам проступит поверх них через обычный переход.
+            _isRefreshingSnapshot = false;
 
             _snapshotEntityId = entityId;
             _snapshotTimer.Start();
@@ -115,6 +132,15 @@ namespace PhotoFrame
                 return;
             }
 
+            // Предыдущий запрос этой же камеры ещё не завершился: ответ Home Assistant
+            // иногда занимает больше периода таймера, и без этой проверки более
+            // медленный старый снимок мог прийти позже уже показанного нового.
+            if (_isRefreshingSnapshot)
+            {
+                return;
+            }
+
+            _isRefreshingSnapshot = true;
             try
             {
                 byte[] jpegBytes = await _client.GetCameraSnapshotAsync(entityId).ConfigureAwait(true);
@@ -124,8 +150,7 @@ namespace PhotoFrame
                     return;
                 }
 
-                SnapshotImage.Source = ImageSource.FromStream(() => new MemoryStream(jpegBytes));
-                StatusLabel.IsVisible = false;
+                await ShowSnapshotAsync(jpegBytes).ConfigureAwait(true);
             }
             catch (PhotoSourceException snapshotFailure)
             {
@@ -134,6 +159,37 @@ namespace PhotoFrame
                     ShowStatus($"{entityId}: {snapshotFailure.Message}");
                 }
             }
+            finally
+            {
+                _isRefreshingSnapshot = false;
+            }
+        }
+
+        /// <summary>
+        /// Выводит новый снимок плавным переходом, как и слайд-шоу на главном экране.
+        /// </summary>
+        /// <remarks>
+        /// Кадр пишется в скрытый слой и проступает поверх видимого: подмена картинки
+        /// скачком на быстро обновляющемся снимке камеры выглядела рябью, а не потоком.
+        /// </remarks>
+        private async Task ShowSnapshotAsync(byte[] jpegBytes)
+        {
+            bool intoTopLayer = !_snapshotIntoTopLayer;
+            Image targetLayer = intoTopLayer ? SnapshotImageTop : SnapshotImage;
+            Image otherLayer = intoTopLayer ? SnapshotImage : SnapshotImageTop;
+
+            targetLayer.Source = ImageSource.FromStream(() => new MemoryStream(jpegBytes));
+            targetLayer.Opacity = 0;
+            targetLayer.IsVisible = true;
+            _snapshotIntoTopLayer = intoTopLayer;
+
+            StatusLabel.IsVisible = false;
+
+            await targetLayer.FadeToAsync(1, SnapshotCrossfadeMilliseconds).ConfigureAwait(true);
+
+            // Прежний слой убираем не сразу, а после перехода: пока оба видны,
+            // старый снимок и просвечивает через новый, давая тот самый переход.
+            otherLayer.Opacity = 0;
         }
 
         private void OnSnapshotTimerElapsed(object? sender, ElapsedEventArgs e)

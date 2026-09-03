@@ -97,6 +97,12 @@ namespace PhotoFrame
 
         private readonly HomeAssistantClient _homeAssistantClient;
 
+        /// <summary>
+        /// Идёт ли уже запрос датчиков: не даёт следующей минуте запустить второй
+        /// поверх первого, если Home Assistant не ответил за минуту.
+        /// </summary>
+        private bool _isRefreshingSensors;
+
         /// <summary>Минута, для которой датчики уже перечитаны.</summary>
         private string? _lastSensorMinute;
 
@@ -521,6 +527,15 @@ namespace PhotoFrame
                 return;
             }
 
+            // Предыдущий запрос ещё не завершился: Home Assistant не всегда укладывается
+            // в минуту между тиками часов, а второй запрос поверх первого мог бы записать
+            // показания не в том порядке — более старые уже после более новых.
+            if (_isRefreshingSensors)
+            {
+                return;
+            }
+
+            _isRefreshingSensors = true;
             try
             {
                 List<(string EntityId, string Text)> values = await _homeAssistantClient
@@ -569,6 +584,10 @@ namespace PhotoFrame
                 System.Diagnostics.Debug.WriteLine($"Датчики не прочитаны: {sensorFailure.Message}");
                 await MainThread.InvokeOnMainThreadAsync(() => SensorHost.IsVisible = false)
                     .ConfigureAwait(true);
+            }
+            finally
+            {
+                _isRefreshingSensors = false;
             }
         }
 

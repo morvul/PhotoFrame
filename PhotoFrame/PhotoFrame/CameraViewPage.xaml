@@ -40,9 +40,20 @@
         </Grid>
 
         <Grid Grid.Row="1" BackgroundColor="Black">
-            <!-- Снимок камеры, обновляемый по таймеру (см. GetCameraSnapshotAsync). -->
+            <!--
+                Два слоя снимка, как и у самого слайд-шоу: новый кадр приходит на
+                скрытый слой и проступает поверх старого, а не подменяет картинку
+                скачком (см. ShowSnapshotAsync).
+            -->
             <Image x:Name="SnapshotImage"
                    IsVisible="False"
+                   Opacity="0"
+                   Aspect="AspectFit"
+                   HorizontalOptions="Fill"
+                   VerticalOptions="Fill" />
+            <Image x:Name="SnapshotImageTop"
+                   IsVisible="False"
+                   Opacity="0"
                    Aspect="AspectFit"
                    HorizontalOptions="Fill"
                    VerticalOptions="Fill" />
