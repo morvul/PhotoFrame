@@ -12,18 +12,20 @@ namespace PhotoFrame
     /// Снимки камер Home Assistant, обновляемые по таймеру.
     /// </summary>
     /// <remarks>
-    /// Загружает снимок камеры и обновляет его каждую ~1.2 секунды. Можно переключаться между камерами.
+    /// Загружает снимок камеры и обновляет его по таймеру, период которого задаётся в
+    /// настройках рамки (см. <see cref="FrameSettings.CameraSnapshotIntervalMilliseconds"/>).
+    /// Можно переключаться между камерами.
     /// </remarks>
     public partial class CameraViewPage : ContentPage
     {
-        private const int SnapshotIntervalMilliseconds = 1200;
-
         private const int SnapshotCrossfadeMilliseconds = 300;
 
         private readonly HomeAssistantClient _client;
 
+        // Интервал берётся из настроек при каждом входе на страницу (см. OnAppearing),
+        // это лишь стартовое значение таймера до первого чтения.
         private readonly System.Timers.Timer _snapshotTimer =
-            new(SnapshotIntervalMilliseconds) { AutoReset = true };
+            new(FrameSettings.CameraSnapshotIntervalMilliseconds) { AutoReset = true };
 
         private List<string> _cameraEntityIds = new();
 
@@ -54,9 +56,12 @@ namespace PhotoFrame
         {
             base.OnAppearing();
 
+            // Могли поменять на экране настроек, пока страницы камеры не было на экране.
+            _snapshotTimer.Interval = FrameSettings.CameraSnapshotIntervalMilliseconds;
+
             if (!HomeAssistantClient.IsConfigured)
             {
-                ShowStatus("Не задан адрес и токен Home Assistant в secrets.props.");
+                ShowStatus("Не заданы адрес и токен Home Assistant в настройках рамки.");
                 return;
             }
 

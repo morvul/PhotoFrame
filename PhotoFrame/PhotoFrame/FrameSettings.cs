@@ -36,6 +36,9 @@ namespace PhotoFrame
         private const string NightScreenBrightnessKey = "night_screen_brightness";
         private const string DayScreenBrightnessKey = "day_screen_brightness";
         private const string NightClockIntensityKey = "night_clock_intensity";
+        private const string HomeAssistantBaseUrlKey = "home_assistant_base_url";
+        private const string HomeAssistantTokenKey = "home_assistant_token";
+        private const string CameraSnapshotIntervalKey = "camera_snapshot_interval_ms";
         private const string ShowSensorsKey = "show_sensors";
         private const string SensorEntityIdsKey = "sensor_entity_ids";
         private const string SensorIconsKey = "sensor_icons";
@@ -370,6 +373,54 @@ namespace PhotoFrame
         public static bool IsNightHour(int hour)
         {
             return NightSchedule.IsNightHour(hour, NightStartHour, NightEndHour);
+        }
+
+        /// <summary>Адрес Home Assistant, например http://homeassistant.local:8123.</summary>
+        /// <remarks>
+        /// Внутренний адрес, а не внешний: рамке незачем интернет, чтобы прочитать датчик.
+        /// Settings → System → Network → Home Assistant URL (Internal).
+        /// </remarks>
+        public static string HomeAssistantBaseUrl
+        {
+            get => ImmichCatalog.NormalizeServerUrl(
+                Preferences.Default.Get(HomeAssistantBaseUrlKey, string.Empty));
+
+            set => Preferences.Default.Set(
+                HomeAssistantBaseUrlKey, ImmichCatalog.NormalizeServerUrl(value));
+        }
+
+        /// <summary>
+        /// Долгоживущий токен Home Assistant (профиль → Security → Long-lived access tokens).
+        /// </summary>
+        /// <remarks>
+        /// Хранится только на устройстве, как и ключ Immich: токен даёт полный доступ
+        /// к дому, а не к одному альбому, и значения по умолчанию из secrets.props
+        /// у него намеренно нет — только то, что введено на этом экране.
+        /// </remarks>
+        public static string HomeAssistantToken
+        {
+            get => Preferences.Default.Get(HomeAssistantTokenKey, string.Empty);
+            set => Preferences.Default.Set(HomeAssistantTokenKey, value?.Trim() ?? string.Empty);
+        }
+
+        /// <summary>Варианты периода опроса снимка камеры, миллисекунды.</summary>
+        public static readonly int[] CameraSnapshotIntervalChoicesMs =
+            { 500, 800, 1200, 2000, 3000, 5000, 10000 };
+
+        /// <summary>
+        /// Как часто CameraViewPage запрашивает новый снимок у Home Assistant.
+        /// </summary>
+        /// <remarks>
+        /// 1200 мс — прежнее зашитое значение, оставлено значением по умолчанию.
+        /// Некоторым источникам камеры каждый запрос снимка обходится не бесплатно —
+        /// например, если сущность на деле оборачивает съёмку телефоном, каждый опрос
+        /// может означать настоящий щелчок затвора и его звук, — и тогда снизить
+        /// частоту проще, чем лезть в код.
+        /// </remarks>
+        public static int CameraSnapshotIntervalMilliseconds
+        {
+            get => Preferences.Default.Get(CameraSnapshotIntervalKey, 1200);
+            set => Preferences.Default.Set(CameraSnapshotIntervalKey, value);
         }
 
         /// <summary>Показывать значения датчиков Home Assistant поверх снимка.</summary>

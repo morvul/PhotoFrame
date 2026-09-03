@@ -44,8 +44,8 @@ namespace PhotoFrame
             if (!HomeAssistantClient.IsConfigured)
             {
                 StatusLabel.Text =
-                    "Не заданы адрес и токен Home Assistant. Укажите HomeAssistantBaseUrl " +
-                    "и HomeAssistantToken в secrets.props и пересоберите приложение.";
+                    "Не заданы адрес и токен Home Assistant. Укажите их в настройках рамки " +
+                    "(раздел «Датчики»).";
                 return;
             }
 

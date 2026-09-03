@@ -107,6 +107,20 @@ namespace PhotoFrame
         private string? _lastSensorMinute;
 
         /// <summary>
+        /// Есть ли в Home Assistant хоть одна камера и отвечает ли он вообще.
+        /// </summary>
+        /// <remarks>
+        /// Кнопку камеры незачем показывать, если адрес настроен, но сам Home Assistant
+        /// не отвечает или камер в нём нет, — нажатие вело бы только на экран с ошибкой.
+        /// Значение — снимок последней проверки, а не живой запрос при каждом нажатии:
+        /// показ панели должен быть мгновенным.
+        /// </remarks>
+        private bool _camerasAvailable;
+
+        /// <summary>Идёт ли уже проверка камер: не даёт запросам накладываться друг на друга.</summary>
+        private bool _isRefreshingCameraAvailability;
+
+        /// <summary>
         /// Показания датчиков одной строкой. Ночью попадают в сам кадр часов, поэтому
         /// нужны отдельно от меток наложения.
         /// </summary>
@@ -592,6 +606,47 @@ namespace PhotoFrame
         }
 
         /// <summary>
+        /// Перепроверяет, отвечает ли Home Assistant и есть ли в нём хоть одна камера.
+        /// </summary>
+        /// <remarks>
+        /// Результат идёт в <see cref="_camerasAvailable"/> и виден только в
+        /// <see cref="UpdateTapRevealedOverlays"/> при следующем показе панели —
+        /// сама проверка с сетью никогда не блокирует нажатие.
+        /// </remarks>
+        private async Task RefreshCameraAvailabilityAsync()
+        {
+            if (!HomeAssistantClient.IsConfigured)
+            {
+                _camerasAvailable = false;
+                return;
+            }
+
+            if (_isRefreshingCameraAvailability)
+            {
+                return;
+            }
+
+            _isRefreshingCameraAvailability = true;
+            try
+            {
+                List<string> cameraEntityIds = await _homeAssistantClient
+                    .GetCameraEntityIdsAsync().ConfigureAwait(true);
+                _camerasAvailable = cameraEntityIds.Count > 0;
+            }
+            catch (PhotoSourceException cameraLookupFailure)
+            {
+                _camerasAvailable = false;
+                System.Diagnostics.Debug.WriteLine(
+                    $"Камеры Home Assistant не проверены: {cameraLookupFailure.Message}");
+            }
+            finally
+            {
+                _isRefreshingCameraAvailability = false;
+                UpdateTapRevealedOverlays();
+            }
+        }
+
+        /// <summary>
         /// Блокирует кнопку «назад» на экране слайд-шоу.
         /// </summary>
         /// <remarks>
@@ -620,6 +675,10 @@ namespace PhotoFrame
             _panelHideTimer.Stop();
             ResetRemoveConfirm();
             ResetDetachConfirm();
+
+            // Адрес или токен могли поменяться на экране настроек — перепроверяем
+            // камеры сразу, а не только через минуту по тику часов.
+            _ = RefreshCameraAvailabilityAsync();
 
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
             ClockDateHost.IsVisible = FrameSettings.ShowDate;
@@ -680,6 +739,14 @@ namespace PhotoFrame
             else if (minuteChanged)
             {
                 _ = RefreshSensorsAsync();
+            }
+
+            // Кнопка камеры — не про датчики и не про день/ночь, но раз в минуту
+            // достаточно, чтобы Home Assistant, ушедший в офлайн, не показывал
+            // рабочую на вид кнопку.
+            if (minuteChanged)
+            {
+                _ = RefreshCameraAvailabilityAsync();
             }
         }
 
@@ -2752,8 +2819,11 @@ namespace PhotoFrame
                 _localPhotoPaths.Count > 0 && _currentPhotoIndex >= 0 && isDayTime && panelVisible;
 
             // Живой поток камеры не про текущий кадр, поэтому доступен и ночью — только
-            // от того, настроен ли вообще Home Assistant.
-            CameraButtonHost.IsVisible = HomeAssistantClient.IsConfigured && panelVisible;
+            // от того, настроен ли Home Assistant, отвечает ли он и есть ли в нём камеры
+            // (см. RefreshCameraAvailabilityAsync): без этого кнопка вела бы на экран
+            // с одной лишь ошибкой.
+            CameraButtonHost.IsVisible =
+                HomeAssistantClient.IsConfigured && _camerasAvailable && panelVisible;
 
             // Ночью показывать нечего: обновлять, смотреть сведения и убирать кадр —
             // всё это про снимок, которого на экране нет. Настройки остаются.

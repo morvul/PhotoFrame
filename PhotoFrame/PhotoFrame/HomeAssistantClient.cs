@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.WebSockets;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,25 +36,26 @@ namespace PhotoFrame
 
         private const string CameraEntityPrefix = "camera.";
 
+        private const string FahrenheitUnit = "°F";
+
+        private const string CelsiusUnit = "°C";
+
+        /// <summary>Сколько ждать весь обмен по WebSocket, от подключения до ответа камеры.</summary>
+        private static readonly TimeSpan WebSocketTimeout = TimeSpan.FromSeconds(15);
+
         private readonly HttpClient _httpClient;
 
         public HomeAssistantClient()
         {
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-
-            if (!string.IsNullOrEmpty(LocalConfig.HomeAssistantToken))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization =
-                    new AuthenticationHeaderValue("Bearer", LocalConfig.HomeAssistantToken);
-            }
         }
 
-        /// <summary>True, если адрес и токен заданы в secrets.props.</summary>
+        /// <summary>True, если адрес и токен заданы в настройках рамки.</summary>
         public static bool IsConfigured =>
-            !string.IsNullOrWhiteSpace(LocalConfig.HomeAssistantBaseUrl)
-            && !string.IsNullOrWhiteSpace(LocalConfig.HomeAssistantToken);
+            !string.IsNullOrWhiteSpace(FrameSettings.HomeAssistantBaseUrl)
+            && !string.IsNullOrWhiteSpace(FrameSettings.HomeAssistantToken);
 
-        private static string BaseUrl => LocalConfig.HomeAssistantBaseUrl.TrimEnd('/');
+        private static string BaseUrl => FrameSettings.HomeAssistantBaseUrl.TrimEnd('/');
 
         /// <summary>
         /// Возвращает все сущности с числовым значением и единицей измерения —
@@ -281,13 +283,23 @@ namespace PhotoFrame
 
             // Датчик может быть "unavailable" или "unknown" — такое не показываем.
             if (!double.TryParse(
-                    state, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                    state, NumberStyles.Float, CultureInfo.InvariantCulture, out double numericState))
             {
                 return null;
             }
 
             string displayName = ReadStringAttribute(attributes, "friendly_name") ?? entityId;
             string? deviceClass = ReadStringAttribute(attributes, "device_class");
+
+            // Рамка всегда показывает температуру в Цельсиях: часть интеграций отдаёт
+            // Фаренгейты независимо от системы единиц, выбранной в самом Home Assistant,
+            // и разбираться в настройках каждого источника ради одной рамки не нужно.
+            if (deviceClass == "temperature" && unit == FahrenheitUnit)
+            {
+                numericState = (numericState - 32) * 5 / 9;
+                state = numericState.ToString("0.#", CultureInfo.InvariantCulture);
+                unit = CelsiusUnit;
+            }
 
             return new HomeAssistantSensor(entityId, displayName, state, unit, deviceClass);
         }
@@ -316,6 +328,12 @@ namespace PhotoFrame
         private async Task<HttpResponseMessage> SendGetAsync(
             string relativePath, CancellationToken cancellationToken)
         {
+            // Клиент — общий на всё приложение и живёт дольше настроек: адрес и токен
+            // могли поменять на экране настроек уже после его создания, поэтому
+            // заголовок ставится заново на каждый запрос, а не один раз в конструкторе.
+            _httpClient.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", FrameSettings.HomeAssistantToken);
+
             HttpResponseMessage response;
             try
             {
@@ -387,7 +405,7 @@ namespace PhotoFrame
             if (!IsConfigured)
             {
                 throw new PhotoSourceException(
-                    "Не заданы адрес и токен Home Assistant в secrets.props.");
+                    "Не заданы адрес и токен Home Assistant в настройках рамки.");
             }
         }
     }

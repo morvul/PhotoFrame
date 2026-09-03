@@ -57,6 +57,15 @@ namespace PhotoFrame
 
             NightColorPicker.ItemsSource = NightClockPalette.BuildChoiceLabels();
             LaunchDelayPicker.ItemsSource = BuildLaunchDelayChoices();
+
+            CameraSnapshotIntervalPicker.ItemsSource = BuildCameraSnapshotIntervalChoices();
+
+            // Путь не меняется на ходу выполнения, поэтому виден сразу, а не только
+            // пока поле пустое: набирать ключ или токен пультом по экранной клавиатуре
+            // всё равно не вариант, даже если что-то уже когда-то ввели руками.
+            ImmichKeyFileHintLabel.Text = $"Либо положите файл на рамку: {ImmichKeyFile.FilePath}";
+            HomeAssistantKeyFileHintLabel.Text =
+                $"Либо положите файл на рамку: {HomeAssistantKeyFile.FilePath}";
         }
 
         /// <summary>0 в списке означает «без предела».</summary>
@@ -157,6 +166,32 @@ namespace PhotoFrame
             return choiceLabels;
         }
 
+        private static string[] BuildCameraSnapshotIntervalChoices()
+        {
+            int[] choicesMs = FrameSettings.CameraSnapshotIntervalChoicesMs;
+            var choiceLabels = new string[choicesMs.Length];
+            for (int choiceIndex = 0; choiceIndex < choiceLabels.Length; choiceIndex++)
+            {
+                choiceLabels[choiceIndex] = DescribeSnapshotInterval(choicesMs[choiceIndex]);
+            }
+
+            return choiceLabels;
+        }
+
+        /// <summary>Меньше секунды — в миллисекундах, иначе в секундах с точностью до десятых.</summary>
+        private static string DescribeSnapshotInterval(int milliseconds)
+        {
+            if (milliseconds < 1000)
+            {
+                return $"{milliseconds} мс";
+            }
+
+            double seconds = milliseconds / 1000.0;
+            return seconds % 1 == 0
+                ? $"{(int)seconds} с"
+                : $"{seconds.ToString("0.#", CultureInfo.InvariantCulture)} с";
+        }
+
         private void LoadCurrentSettings()
         {
             UseSharedAlbumSwitch.IsToggled = FrameSettings.UseSharedAlbum;
@@ -217,6 +252,18 @@ namespace PhotoFrame
             if (PanelRevealPicker.SelectedIndex < 0)
             {
                 PanelRevealPicker.SelectedIndex = 2;
+            }
+
+            HomeAssistantUrlEntry.Text = FrameSettings.HomeAssistantBaseUrl;
+            ShowHomeAssistantToken();
+
+            CameraSnapshotIntervalPicker.SelectedIndex = Array.IndexOf(
+                FrameSettings.CameraSnapshotIntervalChoicesMs,
+                FrameSettings.CameraSnapshotIntervalMilliseconds);
+            if (CameraSnapshotIntervalPicker.SelectedIndex < 0)
+            {
+                CameraSnapshotIntervalPicker.SelectedIndex =
+                    Array.IndexOf(FrameSettings.CameraSnapshotIntervalChoicesMs, 1200);
             }
 
             ShowSensorsSwitch.IsToggled = FrameSettings.ShowSensors;
@@ -301,6 +348,9 @@ namespace PhotoFrame
                 AlbumLimitPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
                 ShuffleSwitch.IsToggled.ToString(),
                 FillScreenSwitch.IsToggled.ToString(),
+                HomeAssistantUrlEntry.Text ?? string.Empty,
+                HomeAssistantTokenEntry.Text ?? string.Empty,
+                CameraSnapshotIntervalPicker.SelectedIndex.ToString(CultureInfo.InvariantCulture),
                 ShowSensorsSwitch.IsToggled.ToString(),
                 ShowClockSwitch.IsToggled.ToString(),
                 ShowDateSwitch.IsToggled.ToString(),
@@ -427,6 +477,41 @@ namespace PhotoFrame
         {
             ApplySettings();
             await Shell.Current.GoToAsync(nameof(SensorPickerPage));
+        }
+
+        /// <summary>
+        /// Проверяет введённый адрес и токен запросом списка датчиков — заодно и
+        /// проверка связи, отдельной ей быть незачем.
+        /// </summary>
+        private async void OnTestHomeAssistantClicked(object? sender, EventArgs e)
+        {
+            if ((HomeAssistantUrlEntry.Text ?? string.Empty).Trim().Length == 0
+                || (HomeAssistantTokenEntry.Text ?? string.Empty).Trim().Length == 0)
+            {
+                HomeAssistantStatusLabel.Text = "Сначала заполните адрес и токен";
+                return;
+            }
+
+            // Клиент читает адрес и токен из настроек рамки, а не из текста на экране,
+            // поэтому без сохранения проверялось бы прошлое значение.
+            ApplySettings();
+
+            HomeAssistantStatusLabel.Text = "Проверка связи...";
+
+            HomeAssistantClient client =
+                IPlatformApplication.Current?.Services.GetService<HomeAssistantClient>()
+                ?? new HomeAssistantClient();
+
+            try
+            {
+                List<HomeAssistantSensor> sensors =
+                    await client.GetNumericSensorsAsync().ConfigureAwait(true);
+                HomeAssistantStatusLabel.Text = $"Связь есть. Числовых датчиков: {sensors.Count}.";
+            }
+            catch (PhotoSourceException connectionFailure)
+            {
+                HomeAssistantStatusLabel.Text = connectionFailure.Message;
+            }
         }
 
         private void ShowDiagnostics()
@@ -648,13 +733,6 @@ namespace PhotoFrame
             if (apiKeyFromFile.Length == 0)
             {
                 ImmichApiKeyEntry.Text = savedApiKey;
-
-                if (savedApiKey.Length == 0)
-                {
-                    ImmichStatusLabel.Text =
-                        $"Ключ можно скопировать на рамку файлом {ImmichKeyFile.FilePath}";
-                }
-
                 return;
             }
 
@@ -663,6 +741,29 @@ namespace PhotoFrame
             ImmichStatusLabel.Text = apiKeyFromFile == savedApiKey
                 ? "Ключ взят из файла immich.key"
                 : "В файле immich.key другой ключ — подставлен, нажмите «Сохранить»";
+        }
+
+        /// <summary>
+        /// Подставляет токен доступа Home Assistant: сохранённый, а если его нет —
+        /// из файла на рамке. См. <see cref="ShowImmichApiKey"/> — тот же приём.
+        /// </summary>
+        private void ShowHomeAssistantToken()
+        {
+            string savedToken = FrameSettings.HomeAssistantToken;
+            string tokenFromFile = HomeAssistantKeyFile.TryRead();
+
+            if (tokenFromFile.Length == 0)
+            {
+                HomeAssistantTokenEntry.Text = savedToken;
+                HomeAssistantStatusLabel.Text = string.Empty;
+                return;
+            }
+
+            HomeAssistantTokenEntry.Text = tokenFromFile;
+
+            HomeAssistantStatusLabel.Text = tokenFromFile == savedToken
+                ? "Токен взят из файла homeassistant.key"
+                : "В файле homeassistant.key другой токен — подставлен, нажмите «Сохранить»";
         }
 
         /// <summary>
@@ -876,6 +977,16 @@ namespace PhotoFrame
             }
             FrameSettings.ShufflePhotos = ShuffleSwitch.IsToggled;
             FrameSettings.FillScreen = FillScreenSwitch.IsToggled;
+
+            FrameSettings.HomeAssistantBaseUrl = HomeAssistantUrlEntry.Text ?? string.Empty;
+            FrameSettings.HomeAssistantToken = HomeAssistantTokenEntry.Text ?? string.Empty;
+
+            if (CameraSnapshotIntervalPicker.SelectedIndex >= 0)
+            {
+                FrameSettings.CameraSnapshotIntervalMilliseconds =
+                    FrameSettings.CameraSnapshotIntervalChoicesMs[CameraSnapshotIntervalPicker.SelectedIndex];
+            }
+
             FrameSettings.ShowSensors = ShowSensorsSwitch.IsToggled;
 
             // Список датчиков правится только на SensorPickerPage.
