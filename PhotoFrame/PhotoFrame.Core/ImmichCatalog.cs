@@ -103,6 +103,21 @@ namespace PhotoFrame
         public static string BuildDeleteAssetsBody(string assetId) =>
             $"{{\"ids\":[\"{assetId}\"],\"force\":false}}";
 
+        /// <summary>Правка отдельного объекта — тем же адресом, что и updateAsset в Immich.</summary>
+        public static string BuildUpdateAssetUrl(string serverUrl, string assetId) =>
+            NormalizeServerUrl(serverUrl) + "/api/assets/" + Uri.EscapeDataString(assetId);
+
+        /// <summary>
+        /// Тело запроса, отвязывающего клип живого фото от снимка.
+        /// </summary>
+        /// <remarks>
+        /// Отдельного адреса «отвязать» в Immich нет: снимок остаётся собой, а поле
+        /// livePhotoVideoId просто обнуляется через тот же updateAsset, что правит любое
+        /// другое поле объекта. Сам клип от этого не удаляется — он становится обычным
+        /// (скрытым) видео в библиотеке, и убрать его — отдельный запрос на удаление.
+        /// </remarks>
+        public static string BuildDetachLivePhotoBody() => "{\"livePhotoVideoId\":null}";
+
         /// <summary>Постраничный поиск по библиотеке или по одному альбому.</summary>
         public static string BuildSearchUrl(string serverUrl) =>
             NormalizeServerUrl(serverUrl) + "/api/search/metadata";

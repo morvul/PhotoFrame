@@ -40,6 +40,13 @@ namespace PhotoFrame
         private const string ManifestFileName = "immich.manifest";
 
         /// <summary>
+        /// Живые фото, для которых сервер уже отказал в отвязке клипа. Android-версию
+        /// живого фото Immich не отвязывает никогда: клип у неё не отдельный объект,
+        /// а зашит в тот же файл, и повторный запрос вернул бы тот же отказ.
+        /// </summary>
+        private const string DetachUnsupportedFileName = "immich.detach.unsupported";
+
+        /// <summary>
         /// Отпечаток набора. В имени ключа стоит версия: с прибавлением столбцов
         /// в списке (альбом, дата съёмки) прежний отпечаток означал бы «ничего не
         /// изменилось», и полный проход, который только и заполняет новые столбцы,
@@ -120,6 +127,31 @@ namespace PhotoFrame
         }
 
         /// <summary>
+        /// Проверяет связь с сервером и ключ доступа, ничего больше не запрашивая.
+        /// </summary>
+        /// <remarks>
+        /// /api/users/me — самый лёгкий запрос, отвечающий и на «сервер не отвечает»,
+        /// и на «ключ не тот», без похода за списком альбомов, который может быть и
+        /// длинным. Вызывается при сохранении настроек: адрес, который сервер не
+        /// примет, лучше заметить сразу, а не на следующей синхронизации.
+        /// </remarks>
+        /// <returns>Текст отказа либо null, если сервер ответил.</returns>
+        public async Task<string?> TryCheckConnectionAsync(
+            string serverUrl, string apiKey, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await GetStringAsync(ImmichCatalog.BuildIdentityUrl(serverUrl), apiKey, cancellationToken)
+                    .ConfigureAwait(false);
+                return null;
+            }
+            catch (PhotoSourceException connectionFailure)
+            {
+                return connectionFailure.Message;
+            }
+        }
+
+        /// <summary>
         /// Убирает объект в корзину сервера — ту же, что и кнопка удаления в самом Immich.
         /// </summary>
         /// <remarks>
@@ -132,8 +164,12 @@ namespace PhotoFrame
         /// доступа мог быть создан без права на удаление — об этом и сообщаем.
         /// </remarks>
         /// <returns>Текст отказа либо null, если объект убран.</returns>
-        public async Task<string?> TryTrashOnServerAsync(
-            string assetId, CancellationToken cancellationToken = default)
+        public Task<string?> TryTrashOnServerAsync(
+            string assetId, CancellationToken cancellationToken = default) =>
+            TrashAssetAsync(assetId, cancellationToken);
+
+        /// <summary>Общая часть отправки объекта в корзину сервера.</summary>
+        private async Task<string?> TrashAssetAsync(string assetId, CancellationToken cancellationToken)
         {
             if (!FrameSettings.IsImmichConfigured || assetId.Length == 0)
             {
@@ -162,6 +198,65 @@ namespace PhotoFrame
                 FrameLog.Warn($"Immich не убрал объект в корзину: {trashFailure.Message}");
                 return trashFailure.Message;
             }
+        }
+
+        /// <summary>
+        /// Отвязывает клип живого фото от снимка и убирает сам клип в корзину сервера.
+        /// Снимок остаётся на месте и в библиотеке — только без секунды движения.
+        /// </summary>
+        /// <remarks>
+        /// Отдельного «отвязать» в Immich нет: правится поле livePhotoVideoId у самого
+        /// снимка через updateAsset, а бывший клип после этого — обычный (хоть и
+        /// скрытый) видеообъект в библиотеке, который надо убирать отдельным запросом,
+        /// иначе он останется висеть в хранилище сервера ничьим.
+        ///
+        /// Неудача второго шага не считается отказом всей операции: снимок уже отвязан,
+        /// то есть то, о чём просили, сделано, а осиротевший клип на сервере — не то,
+        /// что видно на рамке, и не то, что мешает показу.
+        /// </remarks>
+        /// <returns>Текст отказа либо null, если клип отвязан.</returns>
+        public async Task<string?> TryDetachLivePhotoAsync(
+            string assetId, string clipAssetId, CancellationToken cancellationToken = default)
+        {
+            if (!FrameSettings.IsImmichConfigured || assetId.Length == 0)
+            {
+                return "Immich не настроен.";
+            }
+
+            try
+            {
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Put, ImmichCatalog.BuildUpdateAssetUrl(FrameSettings.ImmichServerUrl, assetId))
+                {
+                    Content = new StringContent(
+                        ImmichCatalog.BuildDetachLivePhotoBody(),
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+
+                await SendAsync(request, FrameSettings.ImmichApiKey, cancellationToken)
+                    .ConfigureAwait(false);
+
+                FrameLog.Info($"Живое фото Immich отвязано от клипа: {assetId}");
+            }
+            catch (PhotoSourceException detachFailure)
+            {
+                FrameLog.Warn($"Immich не отвязал живое фото: {detachFailure.Message}");
+                return detachFailure.Message;
+            }
+
+            if (clipAssetId.Length > 0)
+            {
+                string? trashFailure = await TrashAssetAsync(clipAssetId, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (trashFailure is not null)
+                {
+                    FrameLog.Warn($"Осиротевший клип Immich не убран в корзину: {trashFailure}");
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -617,6 +712,65 @@ namespace PhotoFrame
 
             // Клип живого фото или видео лежит в общем каталоге под тем же именем.
             ClipStorage.TryDelete(ClipStorage.BuildClipPath(posterPath));
+        }
+
+        private static string DetachUnsupportedListPath =>
+            Path.Combine(PhotoLibraryDirectory, DetachUnsupportedFileName);
+
+        /// <summary>True, если сервер уже отказал отвязывать клип этого живого фото.</summary>
+        public static bool IsDetachUnsupported(string posterPath)
+        {
+            string posterFileName = Path.GetFileName(posterPath);
+
+            foreach (string line in ReadDetachUnsupportedList())
+            {
+                if (line.Trim().Equals(posterFileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Запоминает отказ сервера — кнопка на этом кадре больше не появится.</summary>
+        public static void MarkDetachUnsupported(string posterPath)
+        {
+            string posterFileName = Path.GetFileName(posterPath);
+            var marked = new List<string>(ReadDetachUnsupportedList());
+
+            if (marked.Contains(posterFileName, StringComparer.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            marked.Add(posterFileName);
+
+            try
+            {
+                Directory.CreateDirectory(PhotoLibraryDirectory);
+                File.WriteAllLines(DetachUnsupportedListPath, marked);
+            }
+            catch (Exception writeFailure) when (
+                writeFailure is IOException or UnauthorizedAccessException)
+            {
+                FrameLog.Warn($"Список неотвязываемых живых фото не сохранён: {writeFailure.Message}");
+            }
+        }
+
+        private static string[] ReadDetachUnsupportedList()
+        {
+            try
+            {
+                return File.Exists(DetachUnsupportedListPath)
+                    ? File.ReadAllLines(DetachUnsupportedListPath)
+                    : Array.Empty<string>();
+            }
+            catch (Exception readFailure) when (
+                readFailure is IOException or UnauthorizedAccessException)
+            {
+                return Array.Empty<string>();
+            }
         }
 
         /// <summary>True, если набор совпадает с уже скачанным и файлы на месте.</summary>

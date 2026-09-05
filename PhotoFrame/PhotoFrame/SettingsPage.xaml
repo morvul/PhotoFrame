@@ -120,6 +120,9 @@
                         <Label Text="Ключ доступа" TextColor="White" FontSize="16" Margin="0,6,0,0" />
                         <Label Text="Immich → Account Settings → API Keys → New API Key"
                                TextColor="Gray" FontSize="13" />
+                        <!-- Путь подставляется в коде: набирать сорок символов пультом — не вариант. -->
+                        <Label x:Name="ImmichKeyFileHintLabel"
+                               TextColor="Gray" FontSize="13" FontAttributes="Italic" />
                         <Entry x:Name="ImmichApiKeyEntry"
                                Placeholder="ключ доступа"
                                PlaceholderColor="#555555"
@@ -411,6 +414,60 @@
 
                 <VerticalStackLayout x:Name="SensorSection" IsVisible="False"
                                      Spacing="20" Margin="8,6,0,10">
+
+                    <!-- Подключение к Home Assistant: своё для датчиков и для камер. -->
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="Адрес Home Assistant" TextColor="White" FontSize="16" />
+                        <Label Text="Внутренний адрес, без интернета — например homeassistant.local:8123"
+                               TextColor="Gray" FontSize="13" />
+                        <Entry x:Name="HomeAssistantUrlEntry"
+                               Placeholder="http://homeassistant.local:8123"
+                               PlaceholderColor="#555555"
+                               Keyboard="Url"
+                               TextColor="White"
+                               BackgroundColor="#1E1E1E"
+                               FontSize="15"
+                               HeightRequest="52" />
+
+                        <Label Text="Токен доступа" TextColor="White" FontSize="16" Margin="0,6,0,0" />
+                        <Label Text="В Home Assistant: профиль (внизу боковой панели) → Security → Long-lived access tokens → Create token. Показывается только один раз — скопируйте сразу"
+                               TextColor="Gray" FontSize="13" />
+                        <!-- Путь подставляется в коде: набирать длинный токен пультом — не вариант. -->
+                        <Label x:Name="HomeAssistantKeyFileHintLabel"
+                               TextColor="Gray" FontSize="13" FontAttributes="Italic" />
+                        <Entry x:Name="HomeAssistantTokenEntry"
+                               Placeholder="токен доступа"
+                               PlaceholderColor="#555555"
+                               IsPassword="True"
+                               TextColor="White"
+                               BackgroundColor="#1E1E1E"
+                               FontSize="15"
+                               HeightRequest="52" />
+
+                        <Label x:Name="HomeAssistantStatusLabel"
+                               TextColor="Gray" FontSize="13"
+                               LineBreakMode="WordWrap" MaxLines="2" />
+
+                        <Button x:Name="HomeAssistantTestButton"
+                                Text="Проверить связь"
+                                Clicked="OnTestHomeAssistantClicked"
+                                BackgroundColor="#333333"
+                                TextColor="White"
+                                Padding="18,10"
+                                CornerRadius="8"
+                                HorizontalOptions="Start" />
+
+                        <Grid ColumnDefinitions="*,190" Margin="0,6,0,0">
+                            <VerticalStackLayout Grid.Column="0">
+                                <Label Text="Обновлять снимок камеры" TextColor="White" FontSize="16" />
+                                <Label Text="Реже — меньше нагрузка на камеру и на Home Assistant; некоторые камеры щёлкают затвором на каждый запрос"
+                                       TextColor="Gray" FontSize="13" />
+                            </VerticalStackLayout>
+                            <Picker Grid.Column="1" x:Name="CameraSnapshotIntervalPicker"
+                                    TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
+                                    VerticalOptions="Center" />
+                        </Grid>
+                    </VerticalStackLayout>
 
                     <Grid ColumnDefinitions="*,Auto">
                         <VerticalStackLayout Grid.Column="0">

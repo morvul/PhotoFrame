@@ -6,6 +6,9 @@
 	<!-- Открыть слайд-шоу после включения рамки; сам запуск включается в настройках. -->
 	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+	<!-- Остановить фоновый процесс Frameo при своём запуске: он переставляет часовой пояс. -->
+	<uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
+
 	<!-- Чтение папок со снимками. На Android 8.1 (API 27) действует READ_EXTERNAL_STORAGE,
 	     на API 33+ его заменяет READ_MEDIA_IMAGES — объявляем оба, чтобы APK работал и там. -->
 	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />

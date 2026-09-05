@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
@@ -96,8 +97,28 @@ namespace PhotoFrame
 
         private readonly HomeAssistantClient _homeAssistantClient;
 
+        /// <summary>
+        /// Идёт ли уже запрос датчиков: не даёт следующей минуте запустить второй
+        /// поверх первого, если Home Assistant не ответил за минуту.
+        /// </summary>
+        private bool _isRefreshingSensors;
+
         /// <summary>Минута, для которой датчики уже перечитаны.</summary>
         private string? _lastSensorMinute;
+
+        /// <summary>
+        /// Есть ли в Home Assistant хоть одна камера и отвечает ли он вообще.
+        /// </summary>
+        /// <remarks>
+        /// Кнопку камеры незачем показывать, если адрес настроен, но сам Home Assistant
+        /// не отвечает или камер в нём нет, — нажатие вело бы только на экран с ошибкой.
+        /// Значение — снимок последней проверки, а не живой запрос при каждом нажатии:
+        /// показ панели должен быть мгновенным.
+        /// </remarks>
+        private bool _camerasAvailable;
+
+        /// <summary>Идёт ли уже проверка камер: не даёт запросам накладываться друг на друга.</summary>
+        private bool _isRefreshingCameraAvailability;
 
         /// <summary>
         /// Показания датчиков одной строкой. Ночью попадают в сам кадр часов, поэтому
@@ -157,6 +178,9 @@ namespace PhotoFrame
 
         /// <summary>Кадр, о котором спрашивает выдвинутое подтверждение.</summary>
         private string? _pendingRemovalPath;
+
+        /// <summary>Живое фото, для которого спрашивает подтверждение отвязка клипа.</summary>
+        private string? _pendingDetachPosterPath;
 
         /// <summary>Заставка кадра альбома, чей клип сейчас играет.</summary>
         private string? _currentAlbumVideoPoster;
@@ -517,6 +541,15 @@ namespace PhotoFrame
                 return;
             }
 
+            // Предыдущий запрос ещё не завершился: Home Assistant не всегда укладывается
+            // в минуту между тиками часов, а второй запрос поверх первого мог бы записать
+            // показания не в том порядке — более старые уже после более новых.
+            if (_isRefreshingSensors)
+            {
+                return;
+            }
+
+            _isRefreshingSensors = true;
             try
             {
                 List<(string EntityId, string Text)> values = await _homeAssistantClient
@@ -566,6 +599,51 @@ namespace PhotoFrame
                 await MainThread.InvokeOnMainThreadAsync(() => SensorHost.IsVisible = false)
                     .ConfigureAwait(true);
             }
+            finally
+            {
+                _isRefreshingSensors = false;
+            }
+        }
+
+        /// <summary>
+        /// Перепроверяет, отвечает ли Home Assistant и есть ли в нём хоть одна камера.
+        /// </summary>
+        /// <remarks>
+        /// Результат идёт в <see cref="_camerasAvailable"/> и виден только в
+        /// <see cref="UpdateTapRevealedOverlays"/> при следующем показе панели —
+        /// сама проверка с сетью никогда не блокирует нажатие.
+        /// </remarks>
+        private async Task RefreshCameraAvailabilityAsync()
+        {
+            if (!HomeAssistantClient.IsConfigured)
+            {
+                _camerasAvailable = false;
+                return;
+            }
+
+            if (_isRefreshingCameraAvailability)
+            {
+                return;
+            }
+
+            _isRefreshingCameraAvailability = true;
+            try
+            {
+                List<string> cameraEntityIds = await _homeAssistantClient
+                    .GetCameraEntityIdsAsync().ConfigureAwait(true);
+                _camerasAvailable = cameraEntityIds.Count > 0;
+            }
+            catch (PhotoSourceException cameraLookupFailure)
+            {
+                _camerasAvailable = false;
+                System.Diagnostics.Debug.WriteLine(
+                    $"Камеры Home Assistant не проверены: {cameraLookupFailure.Message}");
+            }
+            finally
+            {
+                _isRefreshingCameraAvailability = false;
+                UpdateTapRevealedOverlays();
+            }
         }
 
         /// <summary>
@@ -596,6 +674,11 @@ namespace PhotoFrame
             UpdateTapRevealedOverlays();
             _panelHideTimer.Stop();
             ResetRemoveConfirm();
+            ResetDetachConfirm();
+
+            // Адрес или токен могли поменяться на экране настроек — перепроверяем
+            // камеры сразу, а не только через минуту по тику часов.
+            _ = RefreshCameraAvailabilityAsync();
 
             ClockOverlay.IsVisible = FrameSettings.ShowClock;
             ClockDateHost.IsVisible = FrameSettings.ShowDate;
@@ -656,6 +739,14 @@ namespace PhotoFrame
             else if (minuteChanged)
             {
                 _ = RefreshSensorsAsync();
+            }
+
+            // Кнопка камеры — не про датчики и не про день/ночь, но раз в минуту
+            // достаточно, чтобы Home Assistant, ушедший в офлайн, не показывал
+            // рабочую на вид кнопку.
+            if (minuteChanged)
+            {
+                _ = RefreshCameraAvailabilityAsync();
             }
         }
 
@@ -885,6 +976,15 @@ namespace PhotoFrame
                 return;
             }
 
+            // Мигание останавливаем ещё до отрисовки, а не после подмены кадра.
+            // Иначе окно гонки открыто на всё время перетекания слоёв: ShowNightClockFrameAsync
+            // переставляет _nightBlinkLayer на новый слой ещё до его показа (см. там), а
+            // старый таймер до этой строки продолжал тикать — и успевал подсунуть на свежий,
+            // ещё проявляющийся слой кадр прошлой минуты, пока _nightFrameWithColon и
+            // _nightFrameWithoutColon его не обновили. Разрыв был маленьким, но раз в
+            // сколько-то смен минуты таймер в него попадал.
+            _nightBlinkTimer.Stop();
+
             try
             {
                 string colorHex = FrameSettings.NightClockColorHex;
@@ -914,14 +1014,9 @@ namespace PhotoFrame
 
                 await ShowNightClockFrameAsync(renderedFrame).ConfigureAwait(true);
 
-                // Второй кадр этой же минуты, без двоеточия: им и мигаем.
-                //
-                // Мигание на это время останавливается, и ссылка на кадр убирается:
-                // рисуем-то мы поверх него, а первым делом заливаем его чёрным. Пока
-                // этого не было, таймер успевал показать наполовину перерисованный
-                // кадр — на смене минуты по экрану шёл тёмный блик.
-                _nightBlinkTimer.Stop();
-
+                // Второй кадр этой же минуты, без двоеточия: им и мигаем. Ссылка на прежний
+                // кадр убирается здесь же: рисуем-то мы поверх него, а первым делом заливаем
+                // его чёрным.
                 Android.Graphics.Bitmap? colonOffCanvas = _nightFrameWithoutColon;
                 _nightFrameWithoutColon = null;
                 _nightFrameWithColon = renderedFrame;
@@ -1300,7 +1395,9 @@ namespace PhotoFrame
                 UpdateTapRevealedOverlays();
 
                 // Панель ушла вместе с вопросом — считаем это отказом и возвращаем показ.
-                if (ResetRemoveConfirm())
+                // "|", а не "||": оба вопроса не могут висеть разом, но сбросить нужно
+                // оба поля, а не только тот, что проверился первым.
+                if (ResetRemoveConfirm() | ResetDetachConfirm())
                 {
                     _slideshowTimer.Start();
                 }
@@ -1376,6 +1473,17 @@ namespace PhotoFrame
 
             _isLeavingToAnotherPage = true;
             await Shell.Current.GoToAsync(nameof(SettingsPage));
+        }
+
+        private async void OnCameraViewClicked(object? sender, EventArgs e)
+        {
+            if (_isLeavingToAnotherPage)
+            {
+                return;
+            }
+
+            _isLeavingToAnotherPage = true;
+            await Shell.Current.GoToAsync(nameof(CameraViewPage));
         }
 
         private async void OnFileInfoClicked(object? sender, EventArgs e)
@@ -1700,8 +1808,12 @@ namespace PhotoFrame
 
                 // Прогресс приходит только от альбома: локальные папки ничего не качают,
                 // и писать "Загрузка" про обход файлов было бы неправдой.
+                // Просроченная проверка после пробуждения стартует с фонового потока
+                // таймера — без своего SynchronizationContext обратный вызов Progress
+                // придёт туда же, а ShowToast трогает view не из UI-потока.
                 var downloadProgress = new Progress<(int Completed, int Total)>(progress =>
-                    ShowToast($"Загрузка из альбома: {progress.Completed} из {progress.Total}..."));
+                    MainThread.BeginInvokeOnMainThread(() =>
+                        ShowToast($"Загрузка из альбома: {progress.Completed} из {progress.Total}...")));
 
                 AlbumSyncResult syncResult = await _photoSource
                     .RefreshAsync(forceDownload, downloadProgress)
@@ -1861,28 +1973,41 @@ namespace PhotoFrame
 
             if (!sameSet)
             {
-                _localPhotoPaths = loadedPhotoPaths;
-                _currentPhotoIndex = -1;
-
-                // При первой загрузке пробуем продолжить с того же кадра и в том же
-                // порядке, что были до выключения рамки.
-                if (!_hasTriedRestoringOrder)
+                if (_currentPhotoIndex >= 0 && _localPhotoPaths.Count > 0)
                 {
-                    _hasTriedRestoringOrder = true;
-                    restoredIndex = SlideshowStateStore.TryRestoreOrder(_localPhotoPaths);
+                    // Показ уже идёт: набор всего лишь обновился (кадры добавились или
+                    // пропали), а не загрузился впервые. Полная пересортировка тут же
+                    // отправила бы уже показанные кадры обратно вперёд по очереди — и
+                    // они замелькали бы снова. Поэтому уже показанная часть списка
+                    // остаётся как есть, а новые кадры лишь дополняют ещё не показанный
+                    // хвост.
+                    MergeLoadedPhotos(loadedPhotoPaths);
                 }
-
-                if (restoredIndex < 0)
+                else
                 {
-                    if (FrameSettings.ShufflePhotos)
+                    _localPhotoPaths = loadedPhotoPaths;
+                    _currentPhotoIndex = -1;
+
+                    // При первой загрузке пробуем продолжить с того же кадра и в том же
+                    // порядке, что были до выключения рамки.
+                    if (!_hasTriedRestoringOrder)
                     {
-                        ShufflePhotoOrder(_localPhotoPaths);
+                        _hasTriedRestoringOrder = true;
+                        restoredIndex = SlideshowStateStore.TryRestoreOrder(_localPhotoPaths);
                     }
 
-                    // Четыре тысячи строк на диск — только если порядок и правда стал
-                    // другим. Прежде файл переписывался при любом изменении набора,
-                    // даже когда с сервера пропала пара кадров, а очередь осталась той же.
-                    SlideshowStateStore.SaveOrderIfChanged(_localPhotoPaths);
+                    if (restoredIndex < 0)
+                    {
+                        if (FrameSettings.ShufflePhotos)
+                        {
+                            ShufflePhotoOrder(_localPhotoPaths);
+                        }
+
+                        // Четыре тысячи строк на диск — только если порядок и правда стал
+                        // другим. Прежде файл переписывался при любом изменении набора,
+                        // даже когда с сервера пропала пара кадров, а очередь осталась той же.
+                        SlideshowStateStore.SaveOrderIfChanged(_localPhotoPaths);
+                    }
                 }
             }
 
@@ -1925,6 +2050,49 @@ namespace PhotoFrame
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Встраивает обновлённый набор кадров в уже идущий показ, не трогая
+        /// показанную часть очереди.
+        /// </summary>
+        /// <remarks>
+        /// Очередь режется на «уже показано» (индексы 0.._currentPhotoIndex, включая
+        /// текущий кадр) и «ещё не показано» (всё, что дальше). Пропавшие из источника
+        /// кадры просто выпадают из обеих частей, а новые добавляются в конец ещё не
+        /// показанной части — так они попадут в показ не раньше, чем дойдёт очередь, и
+        /// не столкнут уже виденные кадры на повтор.
+        /// </remarks>
+        private void MergeLoadedPhotos(List<string> loadedPhotoPaths)
+        {
+            var oldPaths = new HashSet<string>(_localPhotoPaths, StringComparer.OrdinalIgnoreCase);
+            var loadedSet = new HashSet<string>(loadedPhotoPaths, StringComparer.OrdinalIgnoreCase);
+
+            List<string> shownPart = _localPhotoPaths
+                .Take(_currentPhotoIndex + 1)
+                .Where(path => loadedSet.Contains(path))
+                .ToList();
+
+            List<string> remainingPart = _localPhotoPaths
+                .Skip(_currentPhotoIndex + 1)
+                .Where(path => loadedSet.Contains(path))
+                .ToList();
+
+            List<string> newPhotos = loadedPhotoPaths
+                .Where(path => !oldPaths.Contains(path))
+                .ToList();
+
+            if (FrameSettings.ShufflePhotos)
+            {
+                ShufflePhotoOrder(newPhotos);
+            }
+
+            remainingPart.AddRange(newPhotos);
+
+            _localPhotoPaths = shownPart.Concat(remainingPart).ToList();
+            _currentPhotoIndex = shownPart.Count - 1;
+
+            SlideshowStateStore.SaveOrderIfChanged(_localPhotoPaths);
         }
 
         /// <summary>Перемешивание Фишера — Йетса по месту.</summary>
@@ -2430,6 +2598,147 @@ namespace PhotoFrame
         }
 
         /// <summary>
+        /// Спрашивает подтверждение перед отвязкой клипа: действие небыстро обратимо
+        /// (клип уходит в корзину сервера), и промах по кнопке не должен стоить его молча.
+        /// </summary>
+        private async void OnDetachLiveClicked(object? sender, EventArgs e)
+        {
+            string? posterPath = _currentMotionPoster;
+            if (posterPath is null || _pendingDetachPosterPath is not null)
+            {
+                return;
+            }
+
+            ImmichSlideInfo? slide = ImmichSidecar.Find(posterPath);
+            if (slide is null || slide.ClipAssetId.Length == 0)
+            {
+                return;
+            }
+
+            // Пока висит вопрос, кадр не должен смениться — иначе отвязался бы не тот.
+            _slideshowTimer.Stop();
+            _panelHideTimer.Stop();
+
+            if (_isMotionLooping)
+            {
+                StopMotionLoop(resumeSlideshow: false);
+            }
+
+            _pendingDetachPosterPath = posterPath;
+
+            DetachConfirmPanel.IsVisible = true;
+            await AnimateDetachConfirmAsync(shown: true).ConfigureAwait(true);
+        }
+
+        private async void OnCancelDetachClicked(object? sender, EventArgs e)
+        {
+            await HideDetachConfirmAsync().ConfigureAwait(true);
+
+            _panelHideTimer.Start();
+            _slideshowTimer.Start();
+        }
+
+        /// <summary>
+        /// Отвязывает клип живого фото от снимка на сервере Immich: сам снимок остаётся
+        /// в показе, а секунда движения больше не приезжает и не проигрывается.
+        /// </summary>
+        private async void OnConfirmDetachClicked(object? sender, EventArgs e)
+        {
+            string? posterPath = _pendingDetachPosterPath;
+            await HideDetachConfirmAsync().ConfigureAwait(true);
+
+            if (posterPath is null)
+            {
+                _panelHideTimer.Start();
+                _slideshowTimer.Start();
+                return;
+            }
+
+            ImmichSlideInfo? slide = ImmichSidecar.Find(posterPath);
+            if (slide is null || slide.ClipAssetId.Length == 0)
+            {
+                _panelHideTimer.Start();
+                _slideshowTimer.Start();
+                return;
+            }
+
+            DetachLiveButton.IsEnabled = false;
+
+            ImmichPhotoSource immichSource =
+                IPlatformApplication.Current?.Services.GetService<ImmichPhotoSource>()
+                ?? new ImmichPhotoSource();
+
+            string? failureMessage = await immichSource
+                .TryDetachLivePhotoAsync(slide.AssetId, slide.ClipAssetId)
+                .ConfigureAwait(true);
+
+            DetachLiveButton.IsEnabled = true;
+            _panelHideTimer.Start();
+            _slideshowTimer.Start();
+
+            if (failureMessage is not null)
+            {
+                // Android-живое фото Immich не отвязывает в принципе: клип у него не
+                // отдельный объект, а зашит в тот же файл, что и снимок, и сервер честно
+                // отказывает любому ключу. Запоминаем — кнопка на этом кадре больше
+                // не появится, а вопрос не будет звучать одинаково на каждом таком кадре.
+                if (failureMessage.Contains("android motion photos", StringComparison.OrdinalIgnoreCase))
+                {
+                    ImmichPhotoSource.MarkDetachUnsupported(posterPath);
+                    UpdateTapRevealedOverlays();
+                    ShowToast("Это Android-живое фото: клип зашит в файл, Immich не даёт его отделить");
+                    return;
+                }
+
+                ShowToast($"Не отвязано: {failureMessage}");
+                return;
+            }
+
+            // Сервер уже не знает об этом клипе. Локальный файл и отметку убираем тем же
+            // способом, каким кэш прячет неиграющиеся клипы, — не дожидаясь ближайшей
+            // полной синхронизации, которая и так перепишет список без ссылки на клип.
+            ImmichVideoCache.MarkUnplayable(posterPath);
+
+            _currentMotionPoster = null;
+            UpdateTapRevealedOverlays();
+            ShowToast("Живое фото отключено — снимок остался");
+        }
+
+        private Task AnimateDetachConfirmAsync(bool shown)
+        {
+            return Task.WhenAll(
+                DetachConfirmPanel.TranslateToAsync(shown ? 0 : -44, 0, 180),
+                DetachConfirmPanel.FadeToAsync(shown ? 1 : 0, 180));
+        }
+
+        private async Task HideDetachConfirmAsync()
+        {
+            _pendingDetachPosterPath = null;
+
+            await AnimateDetachConfirmAsync(shown: false).ConfigureAwait(true);
+            DetachConfirmPanel.IsVisible = false;
+        }
+
+        /// <summary>
+        /// Убирает подтверждение без анимации. Возвращает true, если вопрос действительно
+        /// висел, — тогда вызывающий код возобновляет показ.
+        /// </summary>
+        private bool ResetDetachConfirm()
+        {
+            if (_pendingDetachPosterPath is null)
+            {
+                return false;
+            }
+
+            _pendingDetachPosterPath = null;
+
+            DetachConfirmPanel.IsVisible = false;
+            DetachConfirmPanel.Opacity = 0;
+            DetachConfirmPanel.TranslationX = -44;
+            return true;
+        }
+
+        /// <summary>
         /// Снимает повтор: проигрыватель гаснет, на экране остаётся снимок.
         /// </summary>
         /// <param name="resumeSlideshow">
@@ -2509,6 +2818,13 @@ namespace PhotoFrame
             PhotoCounterHost.IsVisible =
                 _localPhotoPaths.Count > 0 && _currentPhotoIndex >= 0 && isDayTime && panelVisible;
 
+            // Живой поток камеры не про текущий кадр, поэтому доступен и ночью — только
+            // от того, настроен ли Home Assistant, отвечает ли он и есть ли в нём камеры
+            // (см. RefreshCameraAvailabilityAsync): без этого кнопка вела бы на экран
+            // с одной лишь ошибкой.
+            CameraButtonHost.IsVisible =
+                HomeAssistantClient.IsConfigured && _camerasAvailable && panelVisible;
+
             // Ночью показывать нечего: обновлять, смотреть сведения и убирать кадр —
             // всё это про снимок, которого на экране нет. Настройки остаются.
             PanelLeftButtons.IsVisible = isDayTime;
@@ -2516,6 +2832,14 @@ namespace PhotoFrame
             // Повторять нечего, если за кадром нет клипа живого фото.
             MotionRepeatButton.IsVisible = _currentMotionPoster is not null && isDayTime;
             MotionRepeatButton.Opacity = _isMotionLooping ? 1.0 : 0.45;
+
+            // Отвязать можно только живое фото Immich — у альбома Google сервер чужой,
+            // и удалённо там ничего не поправить. Android-версию, для которой сервер уже
+            // отказал, кнопкой больше не предлагаем — второй раз тот же отказ не звучит.
+            DetachLiveButton.IsVisible = _currentMotionPoster is { } motionPoster
+                && isDayTime
+                && MediaTrash.IsImmichPhoto(motionPoster)
+                && !ImmichPhotoSource.IsDetachUnsupported(motionPoster);
 
             PlayPauseButton.Text = _isVideoPlaying ? "⏸" : "▶";
             RepeatButton.Opacity = FrameSettings.VideoRepeat ? 1.0 : 0.45;

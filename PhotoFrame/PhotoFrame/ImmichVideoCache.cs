@@ -39,6 +39,20 @@ namespace PhotoFrame
         /// <summary>Одновременно качаем один клип: показан всё равно один кадр.</summary>
         private static readonly SemaphoreSlim DownloadGate = new(1, 1);
 
+        /// <summary>
+        /// На сколько замолкаем после того, как сервер не ответил вовсе.
+        /// </summary>
+        /// <remarks>
+        /// Таймаут на закачку — пять минут, ради перекодирования на слабом сервере.
+        /// Но если сервер недоступен вообще (сеть, адрес, сам процесс лёг), ждать
+        /// столько же для каждого следующего живого фото незачем: результат тот же,
+        /// а слайд-шоу за это время успело бы показать десятки кадров.
+        /// </remarks>
+        private static readonly TimeSpan UnavailableBackoff = TimeSpan.FromMinutes(2);
+
+        /// <summary>До какого момента не пытаемся качать клипы вовсе. UTC.</summary>
+        private static DateTime _unavailableUntilUtc = DateTime.MinValue;
+
         /// <summary>Первые байты файла как текст — для журнала.</summary>
         private static string DescribeHead(string filePath)
         {
@@ -69,6 +83,16 @@ namespace PhotoFrame
 
         /// <summary>Путь к уже скачанному годному клипу либо null.</summary>
         public static string? FindReadyVideo(string posterPath) => ClipStorage.FindReady(posterPath);
+
+        /// <summary>
+        /// Снимает паузу после недоступности сервера — сразу, не дожидаясь истечения.
+        /// </summary>
+        /// <remarks>
+        /// Вызывается при сохранении адреса или ключа в настройках: пауза набрана по
+        /// прежнему (возможно, неверному) адресу, и после правки ждать её остаток
+        /// незачем — следующее живое фото должно пробовать сеть сразу же.
+        /// </remarks>
+        public static void ResetAvailability() => _unavailableUntilUtc = DateTime.MinValue;
 
         /// <summary>
         /// Помечает клип непроигрываемым: больше не качаем и не пробуем.
@@ -151,6 +175,11 @@ namespace PhotoFrame
             }
 
             if (clipAssetId.Length == 0 || !FrameSettings.IsImmichConfigured)
+            {
+                return null;
+            }
+
+            if (DateTime.UtcNow < _unavailableUntilUtc)
             {
                 return null;
             }
@@ -265,18 +294,57 @@ namespace PhotoFrame
                 MediaTrash.NotifyMediaScanner(null, clipPath);
                 return clipPath;
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 ClipStorage.TryDelete(temporaryPath);
                 throw;
             }
+            catch (TaskCanceledException timeoutFailure)
+            {
+                // Не настоящая отмена — это HttpClient.Timeout истёк сам, потому что
+                // сервер не ответил вовсе. Отличаем от отмены по токену тем же приёмом,
+                // что и в ImmichPhotoSource: реальную отмену пробрасываем, а таймаут —
+                // такой же повод замолчать на время, как и обрыв соединения ниже.
+                MarkServerUnavailable();
+                FrameLog.Warn($"Клип Immich не скачан: сервер не ответил вовремя ({timeoutFailure.Message}).");
+                ClipStorage.TryDelete(temporaryPath);
+                return null;
+            }
             catch (Exception downloadFailure) when (
                 downloadFailure is HttpRequestException or IOException or UnauthorizedAccessException)
             {
+                if (downloadFailure is HttpRequestException)
+                {
+                    // Сети до сервера нет вовсе — соседние живые фото за то же время
+                    // получат тот же отказ, и пробовать их сейчас незачем.
+                    MarkServerUnavailable();
+                }
+
                 FrameLog.Warn($"Клип Immich не скачан: {downloadFailure.Message}");
                 ClipStorage.TryDelete(temporaryPath);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Замолкает на <see cref="UnavailableBackoff"/> — сервер недоступен.
+        /// </summary>
+        /// <remarks>
+        /// Публичный, помимо вызовов изнутри: экран настроек знает о недоступности
+        /// раньше — по итогу собственной проверки связи при сохранении, — и в этом
+        /// случае незачем ждать, пока то же самое обнаружит первое живое фото.
+        /// </remarks>
+        public static void MarkServerUnavailable()
+        {
+            DateTime resumeAtUtc = DateTime.UtcNow + UnavailableBackoff;
+            if (resumeAtUtc <= _unavailableUntilUtc)
+            {
+                return;
+            }
+
+            _unavailableUntilUtc = resumeAtUtc;
+            FrameLog.Warn(
+                $"Immich недоступен: клипы не запрашиваются {UnavailableBackoff.TotalMinutes:0} мин.");
         }
     }
 }

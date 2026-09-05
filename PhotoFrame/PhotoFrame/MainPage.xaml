@@ -93,6 +93,28 @@
               Margin="0,0,26,14" />
 
         <!--
+            Камера Home Assistant. Свой угол, а не внутри ControlPanel: та лежит у верхнего
+            края экрана, а кнопке место снизу слева. От подписи о съёмке отделена запасом
+            по высоте — обе появляются по одному касанию и не должны наезжать друг на друга.
+            Видна и днём, и в ночном режиме: живой поток камеры не привязан к текущему кадру.
+        -->
+        <Grid x:Name="CameraButtonHost"
+              IsVisible="False"
+              HorizontalOptions="Start"
+              VerticalOptions="End"
+              Margin="20,0,0,56">
+            <Button x:Name="CameraViewButton"
+                    Text="📷"
+                    Clicked="OnCameraViewClicked"
+                    BackgroundColor="#80000000"
+                    TextColor="White"
+                    FontSize="22"
+                    WidthRequest="56"
+                    HeightRequest="56"
+                    CornerRadius="28" />
+        </Grid>
+
+        <!--
             Ночной режим: вместо слайд-шоу — крупные приглушённые часы на чёрном.
             InputTransparent, чтобы касание всё так же доходило до слоя жестов ниже
             и панель управления оставалась доступной.
@@ -361,6 +383,59 @@
                         HeightRequest="56"
                         CornerRadius="28"
                         HorizontalOptions="Start" />
+
+                <!--
+                    Отвязать клип живого фото и оставить обычный снимок. Видна только
+                    на живом фото Immich — у альбома Google так удалённо не поправить.
+                    Подтверждение — тем же приёмом, что и у корзины ниже: действие
+                    необратимое (клип уходит в корзину сервера), и промах по кнопке
+                    не должен стоить его молча.
+                -->
+                <HorizontalStackLayout Spacing="12">
+                    <Button x:Name="DetachLiveButton"
+                            Text="✂"
+                            IsVisible="False"
+                            Clicked="OnDetachLiveClicked"
+                            BackgroundColor="#80000000"
+                            TextColor="White"
+                            FontSize="22"
+                            WidthRequest="56"
+                            HeightRequest="56"
+                            CornerRadius="28" />
+
+                    <Border x:Name="DetachConfirmPanel"
+                            IsVisible="False"
+                            Opacity="0"
+                            TranslationX="-44"
+                            Padding="10"
+                            BackgroundColor="#B0000000"
+                            StrokeThickness="0"
+                            VerticalOptions="Center">
+                        <Border.StrokeShape>
+                            <RoundRectangle CornerRadius="30" />
+                        </Border.StrokeShape>
+
+                        <HorizontalStackLayout Spacing="10">
+                            <Button Text="✔"
+                                    Clicked="OnConfirmDetachClicked"
+                                    BackgroundColor="#C62828"
+                                    TextColor="White"
+                                    FontSize="22"
+                                    WidthRequest="56"
+                                    HeightRequest="56"
+                                    CornerRadius="28" />
+
+                            <Button Text="✖"
+                                    Clicked="OnCancelDetachClicked"
+                                    BackgroundColor="#333333"
+                                    TextColor="White"
+                                    FontSize="22"
+                                    WidthRequest="56"
+                                    HeightRequest="56"
+                                    CornerRadius="28" />
+                        </HorizontalStackLayout>
+                    </Border>
+                </HorizontalStackLayout>
 
                 <!--
                     Убрать кадр из показа. Подтверждение выезжает вправо от самой кнопки:
