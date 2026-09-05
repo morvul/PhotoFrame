@@ -13,12 +13,12 @@ namespace PhotoFrame
     /// Живой поток камеры Home Assistant без звука. Можно переключаться между камерами.
     /// </summary>
     /// <remarks>
-    /// Кадры MJPEG идут одним долгим соединением (см.
-    /// <see cref="HomeAssistantClient.StreamCameraMjpegFramesAsync"/>) — в отличие от ручного
-    /// опроса снимка, здесь Home Assistant сам решает, как часто отдавать новый кадр внутри
-    /// уже открытого запроса. Если поток не открылся или обрывается на середине просмотра,
-    /// страница сама переходит на резерв: снимок камеры, обновляемый по таймеру с периодом
-    /// из настроек рамки (см. <see cref="FrameSettings.CameraSnapshotIntervalMilliseconds"/>).
+    /// Чем показывать камеру, решает сама Home Assistant через атрибут
+    /// <c>frontend_stream_type</c>: HLS-плейлист играет ExoPlayer, MJPEG идёт одним долгим
+    /// соединением (см. <see cref="HomeAssistantClient.StreamCameraMjpegFramesAsync"/>), а
+    /// WebRTC на рамке не поддержан. Если поток не открылся или обрывается на середине
+    /// просмотра, страница сама переходит на резерв: снимок камеры, обновляемый по таймеру
+    /// с периодом из настроек рамки (см. <see cref="FrameSettings.CameraSnapshotIntervalMilliseconds"/>).
     /// </remarks>
     public partial class CameraViewPage : ContentPage
     {
@@ -26,6 +26,14 @@ namespace PhotoFrame
 
         /// <summary>Сколько ждать первый кадр живого потока, прежде чем перейти на резерв.</summary>
         private const int MjpegFirstFrameTimeoutMilliseconds = 20000;
+
+        /// <summary>
+        /// Сколько ждать первый кадр HLS-потока, прежде чем пробовать другой способ.
+        /// Больше, чем у MJPEG, и заметно: Home Assistant только запускает ffmpeg, а на
+        /// 32-битной рамке первый кадр дополнительно ждёт JIT-компиляции медиа-классов —
+        /// на практике кадр приходит далеко за пятнадцать секунд.
+        /// </summary>
+        private const int HlsFirstFrameTimeoutMilliseconds = 30000;
 
         private readonly HomeAssistantClient _client;
 
@@ -52,6 +60,28 @@ namespace PhotoFrame
         /// </summary>
         private CancellationTokenSource? _mjpegStreamCts;
 
+        /// <summary>Сущность, которую показываем сейчас. По ней понимаем, чей поток оборвался.</summary>
+        private string? _currentEntityId;
+
+        /// <summary>
+        /// Камеры, которым Home Assistant не отдаёт живой HLS (облачные, без RTSP-источника).
+        /// Для них HLS-попытку пропускаем и идём сразу на MJPEG/снимки — иначе страница зря
+        /// висит на «Подключение...» до таймаута, а толку нет.
+        /// </summary>
+        private readonly HashSet<string> _camerasWithoutHls = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Бренды облачных камер, которым HA не может отдать HLS без локального RTSP.</summary>
+        private static readonly HashSet<string> CloudOnlyCameraBrands = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Tuya",
+        };
+
+        /// <summary>
+        /// Сигнал «пришёл первый кадр HLS» для текущей попытки. Каждая попытка живёт со
+        /// своим экземпляром: устаревший кадр от прошлой камеры не должен будить новую.
+        /// </summary>
+        private TaskCompletionSource<bool>? _firstFrameTcs;
+
         public CameraViewPage()
         {
             InitializeComponent();
@@ -63,6 +93,8 @@ namespace PhotoFrame
                 ?? new HomeAssistantClient();
 
             _snapshotTimer.Elapsed += OnSnapshotTimerElapsed;
+            LiveVideoPlayer.PlaybackFailed += OnLiveVideoFailed;
+            LiveVideoPlayer.FirstFrameRendered += OnLiveVideoFirstFrame;
         }
 
         protected override void OnAppearing()
@@ -106,19 +138,36 @@ namespace PhotoFrame
             NextCameraButton.IsVisible = _cameraEntityIds.Count > 1;
             _cameraIndex = 0;
 
-            // Временная диагностика перед WebRTC: узнаём, что сама Home Assistant
-            // считает подходящим способом показа для каждой камеры.
+            // Узнаём, что сама Home Assistant считает подходящим способом показа для
+            // каждой камеры, и запоминаем: от этого зависит, какой механизм запускать.
             foreach (string cameraId in _cameraEntityIds)
             {
+                string? streamType = null;
                 try
                 {
-                    string? streamType = await _client
+                    streamType = await _client
                         .GetCameraFrontendStreamTypeAsync(cameraId).ConfigureAwait(true);
                     FrameLog.Info($"{cameraId}: frontend_stream_type = {streamType ?? "(нет)"}");
                 }
                 catch (PhotoSourceException lookupFailure)
                 {
                     FrameLog.Warn($"{cameraId}: frontend_stream_type не прочитан ({lookupFailure.Message})");
+                }
+
+                // Облачные камеры (Tuya и подобные) HA не отдаёт живым HLS без RTSP-источника —
+                // таких в HLS-попытке нет смысла. Отмечаем их, чтобы идти сразу на MJPEG/снимки.
+                try
+                {
+                    string? brand = await _client.GetCameraBrandAsync(cameraId).ConfigureAwait(true);
+                    if (brand is not null && CloudOnlyCameraBrands.Contains(brand))
+                    {
+                        _camerasWithoutHls.Add(cameraId);
+                        FrameLog.Info($"{cameraId}: бренд {brand} — HLS пропускаем, идём на MJPEG/снимки");
+                    }
+                }
+                catch (PhotoSourceException lookupFailure)
+                {
+                    FrameLog.Warn($"{cameraId}: бренд не прочитан ({lookupFailure.Message})");
                 }
             }
 
@@ -131,14 +180,18 @@ namespace PhotoFrame
 
             StopSnapshotPolling();
             StopMjpegStream();
+            StopHlsStream();
+            _currentEntityId = null;
         }
 
         private void PlayCurrentCamera()
         {
             string entityId = _cameraEntityIds[_cameraIndex];
+            _currentEntityId = entityId;
 
             StopSnapshotPolling();
             StopMjpegStream();
+            StopHlsStream();
 
             // Слои снимка от прошлой камеры или прошлой попытки не нужны — первый
             // пришедший кадр сам их сменит через обычный для своего режима переход.
@@ -150,7 +203,19 @@ namespace PhotoFrame
             HeaderLabel.Text = $"Камера ({_cameraIndex + 1}/{_cameraEntityIds.Count}) — {entityId}";
             ShowStatus("Подключение...");
 
-            _ = RunMjpegStreamAsync(entityId);
+            // Живой поток пробуем так: сначала HLS (его отдаёт camera/stream), и только
+            // если он не отдал кадр — MJPEG, а в самом крайнем случае снимки. Атрибут
+            // frontend_stream_type у камер не всегда заполнен (в этой версии Home Assistant —
+            // вовсе нет), так что полагаться на него нельзя. Но облачные камеры без RTSP
+            // (Tuya и подобные) HLS не отдают вовсе — для них сразу MJPEG/снимки.
+            if (_camerasWithoutHls.Contains(entityId))
+            {
+                _ = RunMjpegStreamAsync(entityId);
+            }
+            else
+            {
+                _ = RunHlsStreamAsync(entityId);
+            }
         }
 
         private void StopMjpegStream()
@@ -159,6 +224,98 @@ namespace PhotoFrame
             _mjpegStreamCts?.Dispose();
             _mjpegStreamCts = null;
         }
+
+        /// <summary>
+        /// Живой HLS-поток камеры. Получает адрес плейлиста по WebSocket (camera/stream),
+        /// отдаёт его ExoPlayer и оставляет играть по кругу. Если поток не поднялся или
+        /// оборвался, страница уходит на резерв — снимки по таймеру.
+        /// </summary>
+        private async Task RunHlsStreamAsync(string entityId)
+        {
+            string streamUrl;
+            try
+            {
+                streamUrl = await _client
+                    .GetCameraStreamUrlAsync(entityId).ConfigureAwait(true);
+            }
+            catch (PhotoSourceException streamFailure)
+            {
+                if (_currentEntityId == entityId)
+                {
+                    FrameLog.Warn(
+                        $"{entityId}: HLS-поток не открылся ({streamFailure.Message}), пробуем MJPEG");
+                    _ = RunMjpegStreamAsync(entityId);
+                }
+                return;
+            }
+
+            // Пока запрашивали адрес, переключили камеру или ушли со страницы.
+            if (_currentEntityId != entityId)
+            {
+                return;
+            }
+
+            var firstFrame = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _firstFrameTcs = firstFrame;
+
+            // Сначала показываем вид, чтобы у него появился платформенный обработчик,
+            // и только потом отдаём адрес: иначе SourcePath был бы записан раньше,
+            // чем ExoPlayer успел бы его принять.
+            LiveVideoPlayer.IsVisible = true;
+            LiveVideoPlayer.SourcePath = streamUrl;
+            LiveVideoPlayer.IsLooping = true;
+            LiveVideoPlayer.IsMuted = true;
+            LiveVideoPlayer.Play();
+            StatusLabel.IsVisible = false;
+
+            // Ждём первый кадр. Если его нет — HLS живой картинки не даёт (поток не поднялся
+            // на стороне Home Assistant), пробуем MJPEG, а тот сам перейдёт на снимки.
+            Task completed = await Task.WhenAny(
+                firstFrame.Task, Task.Delay(HlsFirstFrameTimeoutMilliseconds)).ConfigureAwait(true);
+
+            if (completed != firstFrame.Task && _currentEntityId == entityId)
+            {
+                FrameLog.Warn($"{entityId}: HLS не отдал кадр, пробуем MJPEG");
+                StopHlsStream();
+                _ = RunMjpegStreamAsync(entityId);
+            }
+        }
+
+        /// <summary>
+        /// Останавливает HLS-поток. Начинается всё с того же рукопожатия, что и у клипов,
+        /// — слои угасают и отдают декодер, а страница прячет видео.
+        /// </summary>
+        private void StopHlsStream()
+        {
+            // Устаревшая попытка не должна реагировать на первый кадр от прошлой камеры.
+            _firstFrameTcs = null;
+            // Одного SourcePath=null достаточно: он сам гасит и пересоздаёт слои.
+            // Лишний Stop() сверху давал двойной teardown — лишние Init/Release декодера,
+            // из-за которых повторное открытие ловит отказ переинициализации (-1010).
+            LiveVideoPlayer.SourcePath = null;
+            LiveVideoPlayer.IsVisible = false;
+        }
+
+        /// <summary>
+        /// ExoPlayer не смог ни открыть, ни доиграть поток — пробуем MJPEG, а тот уже сам
+        /// уйдёт на снимки, если и он не даст кадров.
+        /// </summary>
+        private void OnLiveVideoFailed(object? sender, EventArgs e)
+        {
+            // Уже на MJPEG — не перезапускаем его повторным фолбэком.
+            if (_currentEntityId is string entityId && _mjpegStreamCts is null)
+            {
+                FrameLog.Warn($"{entityId}: HLS оборвался, пробуем MJPEG");
+                StopHlsStream();
+                _ = RunMjpegStreamAsync(entityId);
+            }
+        }
+
+        /// <summary>
+        /// Пришёл первый кадр HLS — снимаем ожидание: поток живой, оставляем играть.
+        /// </summary>
+        private void OnLiveVideoFirstFrame(object? sender, EventArgs e) =>
+            _firstFrameTcs?.TrySetResult(true);
 
         /// <summary>
         /// Держит соединение открытым и показывает кадры по мере прихода. Если поток не
@@ -255,6 +412,7 @@ namespace PhotoFrame
         private void StartSnapshotPolling(string entityId)
         {
             StopMjpegStream();
+            StopHlsStream();
             ShowStatus("Загрузка снимка...");
 
             // Слои снимка от предыдущей камеры не нужны: первый кадр новой камеры

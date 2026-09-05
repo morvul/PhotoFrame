@@ -48,6 +48,15 @@ namespace PhotoFrame
         public event EventHandler? PlaybackFinished;
 
         /// <summary>
+        /// Проигрыватель отрисовал первый кадр потока — пошла живая картинка.
+        /// </summary>
+        /// <remarks>
+        /// Позволяет отличить «поток крутится, но кадр ещё не пришёл» от «потока вовсе нет»:
+        /// страница камеры по нему решает, ждать ли дальше или уходить на резерв.
+        /// </remarks>
+        public event EventHandler? FirstFrameRendered;
+
+        /// <summary>
         /// Файл не воспроизводится: проигрыватель не смог его подготовить.
         /// </summary>
         /// <remarks>
@@ -79,6 +88,10 @@ namespace PhotoFrame
         /// <summary>Вызывается платформенным обработчиком.</summary>
         internal void RaisePlaybackFinished() =>
             PlaybackFinished?.Invoke(this, EventArgs.Empty);
+
+        /// <summary>Вызывается платформенным обработчиком, когда отрисован первый кадр.</summary>
+        internal void RaiseFirstFrameRendered() =>
+            FirstFrameRendered?.Invoke(this, EventArgs.Empty);
 
         /// <summary>Вызывается, когда файл не удалось воспроизвести.</summary>
         internal void RaisePlaybackFailed() =>

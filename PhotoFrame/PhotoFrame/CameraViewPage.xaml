@@ -60,6 +60,17 @@
                    HorizontalOptions="Fill"
                    VerticalOptions="Fill" />
 
+            <!--
+                Живой HLS-поток камеры (frontend_stream_type = "hls"). Проигрывается
+                тем же ExoPlayer, что и локальные клипы, но по сети: страница указывает
+                адрес плейлиста из camera/stream. Виден, только когда камера отдаёт HLS.
+                Слои снимка при этом скрыты, а при обрыве потока страница уходит на резерв.
+            -->
+            <local:VideoPlayerView x:Name="LiveVideoPlayer"
+                                   IsVisible="False"
+                                   HorizontalOptions="Fill"
+                                   VerticalOptions="Fill" />
+
             <!-- Пока поток не открылся или камера недоступна — сюда пишется, что происходит. -->
             <Label x:Name="StatusLabel"
                    TextColor="White"

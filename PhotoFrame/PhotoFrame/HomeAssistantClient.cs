@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -41,11 +42,24 @@ namespace PhotoFrame
 
         private const string CelsiusUnit = "°C";
 
+        /// <summary>Сколько ждать весь обмен по WebSocket, от подключения до ответа камеры.</summary>
+        private static readonly TimeSpan WebSocketTimeout = TimeSpan.FromSeconds(15);
+
         private readonly HttpClient _httpClient;
+
+        /// <summary>
+        /// Клиент для живого потока камеры. Общий <see cref="_httpClient"/> живёт с
+        /// лимитом в 15 секунд, а MJPEG-поток — это одно бесконечно долгое соединение,
+        /// и такой лимит его рвал бы через четверть минуты, даже когда кадры идут.
+        /// У этого клиента лимита нет: о времени выхода из потока заботится сама рамка
+        /// (см. <c>MjpegFirstFrameTimeoutMilliseconds</c> в <c>CameraViewPage</c>).
+        /// </summary>
+        private readonly HttpClient _streamingHttpClient;
 
         public HomeAssistantClient()
         {
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            _streamingHttpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         }
 
         /// <summary>True, если адрес и токен заданы в настройках рамки.</summary>
@@ -229,17 +243,193 @@ namespace PhotoFrame
         }
 
         /// <summary>
+        /// Бренд-вендор камеры ("Tuya", "Ring", ...). Null, если сущность его не сообщает.
+        /// </summary>
+        /// <remarks>
+        /// Нужен, чтобы отличать облачные камеры, которые Home Assistant не может отдать
+        /// живым HLS-потоком без локального RTSP-источника, от камер с реальным стримом.
+        /// </remarks>
+        public async Task<string?> GetCameraBrandAsync(
+            string entityId, CancellationToken cancellationToken = default)
+        {
+            EnsureConfigured();
+
+            using JsonDocument stateDocument = await GetJsonAsync(
+                "/api/states/" + Uri.EscapeDataString(entityId), cancellationToken)
+                .ConfigureAwait(false);
+
+            return stateDocument.RootElement.TryGetProperty("attributes", out JsonElement attributes)
+                ? ReadStringAttribute(attributes, "brand")
+                : null;
+        }
+
+        /// <summary>
+        /// Запрашивает адрес живого потока камеры со звуком.
+        /// </summary>
+        /// <remarks>
+        /// REST-адреса Home Assistant отдают только снимок или MJPEG без звука.
+        /// Ссылку на HLS-плейлист со звуком отдаёт лишь команда camera/stream по
+        /// WebSocket API. Соединение открывается на одну команду и закрывается сразу
+        /// после ответа — держать его на всё время просмотра не нужно, ссылка уже несёт
+        /// временный токен доступа в собственном пути.
+        /// </remarks>
+        public async Task<string> GetCameraStreamUrlAsync(
+            string entityId, CancellationToken cancellationToken = default)
+        {
+            EnsureConfigured();
+
+            using var socket = new ClientWebSocket();
+
+            // Своя граница по времени: без неё зависший обмен по WebSocket держал бы
+            // страницу камеры на «Подключение...» бесконечно — ни исключения, ни следа
+            // в журнале, только вечный спиннер.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(WebSocketTimeout);
+            CancellationToken linkedToken = timeoutCts.Token;
+
+            try
+            {
+                await socket.ConnectAsync(BuildWebSocketUri(), linkedToken).ConfigureAwait(false);
+
+                // Первое сообщение сервера — приглашение авторизоваться, само оно не нужно.
+                using (await ReceiveJsonAsync(socket, linkedToken).ConfigureAwait(false))
+                {
+                }
+
+                await SendJsonAsync(
+                    socket,
+                    new { type = "auth", access_token = FrameSettings.HomeAssistantToken },
+                    linkedToken).ConfigureAwait(false);
+
+                using JsonDocument authResponse =
+                    await ReceiveJsonAsync(socket, linkedToken).ConfigureAwait(false);
+
+                if (ReadStringAttribute(authResponse.RootElement, "type") != "auth_ok")
+                {
+                    throw new PhotoSourceException("Home Assistant отклонил токен по WebSocket.");
+                }
+
+                await SendJsonAsync(
+                    socket,
+                    new { id = 1, type = "camera/stream", entity_id = entityId },
+                    linkedToken).ConfigureAwait(false);
+
+                using JsonDocument streamResponse =
+                    await ReceiveJsonAsync(socket, linkedToken).ConfigureAwait(false);
+
+                if (!streamResponse.RootElement.TryGetProperty("success", out JsonElement successElement)
+                    || successElement.ValueKind != JsonValueKind.True
+                    || !streamResponse.RootElement.TryGetProperty("result", out JsonElement resultElement)
+                    || !resultElement.TryGetProperty("url", out JsonElement urlElement)
+                    || urlElement.GetString() is not string streamPath)
+                {
+                    throw new PhotoSourceException("Камера не отдаёт поток через Home Assistant.");
+                }
+
+                string streamUrl = streamPath.StartsWith("/", StringComparison.Ordinal)
+                    ? BaseUrl + streamPath
+                    : streamPath;
+
+                // Разово в журнал: тот же адрес можно проверить curl'ом отдельно от
+                // рамки, чтобы понять, кто именно не отвечает — Home Assistant или
+                // ExoPlayer на устройстве.
+                FrameLog.Info($"Поток камеры {entityId}: {streamUrl}");
+
+                return streamUrl;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                FrameLog.Warn($"Home Assistant не ответил по WebSocket за {WebSocketTimeout}.");
+                throw new PhotoSourceException("Камера Home Assistant не ответила по WebSocket вовремя.");
+            }
+            catch (WebSocketException socketFailure)
+            {
+                FrameLog.Warn(
+                    $"WebSocket Home Assistant недоступен ({socketFailure.WebSocketErrorCode}): "
+                    + $"{socketFailure.Message} — {socketFailure.InnerException?.Message}");
+                throw new PhotoSourceException("Home Assistant не ответил по WebSocket.", socketFailure);
+            }
+            finally
+            {
+                if (socket.State == WebSocketState.Open)
+                {
+                    try
+                    {
+                        await socket
+                            .CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
+                    catch (WebSocketException)
+                    {
+                        // Соединение всё равно больше не нужно — не закрылось, не беда.
+                    }
+                }
+            }
+        }
+
+        private static Uri BuildWebSocketUri()
+        {
+            string httpBaseUrl = BaseUrl;
+
+            string scheme = httpBaseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? "wss://"
+                : "ws://";
+
+            int schemeSeparatorIndex = httpBaseUrl.IndexOf("://", StringComparison.Ordinal);
+            string hostAndPath = schemeSeparatorIndex >= 0
+                ? httpBaseUrl[(schemeSeparatorIndex + 3)..]
+                : httpBaseUrl;
+
+            return new Uri(scheme + hostAndPath + "/api/websocket");
+        }
+
+        private static Task SendJsonAsync(
+            ClientWebSocket socket, object payload, CancellationToken cancellationToken)
+        {
+            byte[] payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+            return socket.SendAsync(
+                payloadBytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
+        }
+
+        private static async Task<JsonDocument> ReceiveJsonAsync(
+            ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            using var messageBuffer = new MemoryStream();
+            var receiveBuffer = new byte[8192];
+
+            while (true)
+            {
+                WebSocketReceiveResult receiveResult = await socket
+                    .ReceiveAsync(receiveBuffer, cancellationToken).ConfigureAwait(false);
+
+                if (receiveResult.MessageType == WebSocketMessageType.Close)
+                {
+                    throw new PhotoSourceException("Home Assistant закрыл WebSocket-соединение.");
+                }
+
+                messageBuffer.Write(receiveBuffer, 0, receiveResult.Count);
+
+                if (receiveResult.EndOfMessage)
+                {
+                    break;
+                }
+            }
+
+            messageBuffer.Position = 0;
+            return JsonDocument.Parse(messageBuffer);
+        }
+
+        /// <summary>
         /// Живой поток камеры без звука — кадры MJPEG по одному соединению, а не
         /// снимок на каждый запрос.
         /// </summary>
         /// <remarks>
-        /// В отличие от HLS-плейлиста через WebSocket (camera/stream), который у
-        /// облачных камер вроде Tuya требует поднять RTSP через ffmpeg на стороне Home
-        /// Assistant — и там же и рвётся, если облако отдаёт подписанную ссылку с
-        /// опозданием, — MJPEG для большинства интеграций строится тем же способом,
-        /// что и обычный снимок: Home Assistant просто повторяет тот же запрос кадра
-        /// внутри одного долгого HTTP-ответа. Соединение одно на весь просмотр, а не
-        /// одно на кадр, как у ручного опроса <see cref="GetCameraSnapshotAsync"/>.
+        /// Используется, когда Home Assistant сообщает <c>frontend_stream_type = "mjpeg"</c>:
+        /// кадры идут одним долгим HTTP-ответом в формате multipart/x-mixed-replace, а не
+        /// снимком на каждый запрос. Соединение одно на весь просмотр, а не одно на кадр,
+        /// как у ручного опроса <see cref="GetCameraSnapshotAsync"/>. Для камер, которые
+        /// Home Assistant отдаёт как HLS или WebRTC, этот способ не подходит — служит
+        /// ответом на <see cref="GetCameraFrontendStreamTypeAsync"/>.
         /// </remarks>
         public async IAsyncEnumerable<byte[]> StreamCameraMjpegFramesAsync(
             string entityId,
@@ -248,6 +438,7 @@ namespace PhotoFrame
             EnsureConfigured();
 
             using HttpResponseMessage response = await SendGetAsync(
+                _streamingHttpClient,
                 "/api/camera_proxy_stream/" + Uri.EscapeDataString(entityId),
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken).ConfigureAwait(false);
@@ -319,7 +510,8 @@ namespace PhotoFrame
             string boundary,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            byte[] boundaryMarker = Encoding.ASCII.GetBytes("--" + boundary);
+            byte[] boundaryMarker = Encoding.ASCII.GetBytes(
+                boundary.StartsWith("--", StringComparison.Ordinal) ? boundary : "--" + boundary);
 
             byte[] buffer = new byte[MjpegReadChunkBytes];
             int length = 0;
@@ -551,26 +743,30 @@ namespace PhotoFrame
 
         private Task<HttpResponseMessage> SendGetAsync(
             string relativePath, CancellationToken cancellationToken) =>
-            SendGetAsync(relativePath, HttpCompletionOption.ResponseContentRead, cancellationToken);
+            SendGetAsync(_httpClient, relativePath, HttpCompletionOption.ResponseContentRead, cancellationToken);
 
         /// <remarks>
         /// <paramref name="completionOption"/> — <see cref="HttpCompletionOption.ResponseHeadersRead"/>
         /// нужен для потока камеры: тело там не заканчивается никогда, и ждать его
         /// целиком (обычное поведение GetAsync) означало бы никогда не вернуться из вызова.
         /// </remarks>
+        private Task<HttpResponseMessage> SendGetAsync(
+            string relativePath, HttpCompletionOption completionOption, CancellationToken cancellationToken) =>
+            SendGetAsync(_httpClient, relativePath, completionOption, cancellationToken);
+
         private async Task<HttpResponseMessage> SendGetAsync(
-            string relativePath, HttpCompletionOption completionOption, CancellationToken cancellationToken)
+            HttpClient client, string relativePath, HttpCompletionOption completionOption, CancellationToken cancellationToken)
         {
             // Клиент — общий на всё приложение и живёт дольше настроек: адрес и токен
             // могли поменять на экране настроек уже после его создания, поэтому
             // заголовок ставится заново на каждый запрос, а не один раз в конструкторе.
-            _httpClient.DefaultRequestHeaders.Authorization =
+            client.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", FrameSettings.HomeAssistantToken);
 
             HttpResponseMessage response;
             try
             {
-                response = await _httpClient
+                response = await client
                     .GetAsync(BaseUrl + relativePath, completionOption, cancellationToken)
                     .ConfigureAwait(false);
             }
