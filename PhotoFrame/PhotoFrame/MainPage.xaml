@@ -93,28 +93,6 @@
               Margin="0,0,26,14" />
 
         <!--
-            Камера Home Assistant. Свой угол, а не внутри ControlPanel: та лежит у верхнего
-            края экрана, а кнопке место снизу слева. От подписи о съёмке отделена запасом
-            по высоте — обе появляются по одному касанию и не должны наезжать друг на друга.
-            Видна и днём, и в ночном режиме: живой поток камеры не привязан к текущему кадру.
-        -->
-        <Grid x:Name="CameraButtonHost"
-              IsVisible="False"
-              HorizontalOptions="Start"
-              VerticalOptions="End"
-              Margin="20,0,0,56">
-            <Button x:Name="CameraViewButton"
-                    Text="📷"
-                    Clicked="OnCameraViewClicked"
-                    BackgroundColor="#80000000"
-                    TextColor="White"
-                    FontSize="22"
-                    WidthRequest="56"
-                    HeightRequest="56"
-                    CornerRadius="28" />
-        </Grid>
-
-        <!--
             Ночной режим: вместо слайд-шоу — крупные приглушённые часы на чёрном.
             InputTransparent, чтобы касание всё так же доходило до слоя жестов ниже
             и панель управления оставалась доступной.
@@ -167,6 +145,29 @@
                    HorizontalOptions="Fill"
                    VerticalOptions="Fill"
                    InputTransparent="True" />
+        </Grid>
+
+        <!--
+            Камера Home Assistant. Свой угол, а не внутри ControlPanel: та лежит у верхнего
+            края экрана, а кнопке место снизу слева. От подписи о съёмке отделена запасом
+            по высоте — обе появляются по одному касанию и не должны наезжать друг на друга.
+            Объявлена после ночного оверлея, чтобы быть видимой и ночью (живой поток камеры
+            не привязан к текущему кадру), и днём.
+        -->
+        <Grid x:Name="CameraButtonHost"
+              IsVisible="False"
+              HorizontalOptions="Start"
+              VerticalOptions="End"
+              Margin="20,0,0,56">
+            <Button x:Name="CameraViewButton"
+                    Text="📷"
+                    Clicked="OnCameraViewClicked"
+                    BackgroundColor="#80000000"
+                    TextColor="White"
+                    FontSize="22"
+                    WidthRequest="56"
+                    HeightRequest="56"
+                    CornerRadius="28" />
         </Grid>
 
         <!--
@@ -498,59 +499,7 @@
                         WidthRequest="56"
                         HeightRequest="56"
                         CornerRadius="28" />
-
-                <!--
-                    Тех.режим: на время обслуживания рамки. Выключает автозапуск и показывает
-                    подсказку, чтобы можно было настроить adb/разрешение отладки, не мешая
-                    слайд-шоу. Домой приложение остаётся — рамка после ребута всё равно
-                    загрузится в слайд-шоу (это home-приложение), просто без лишнего
-                    автозапуска по BOOT_COMPLETED.
-                -->
-                <Button x:Name="TechModeButton"
-                        Text="🔧"
-                        Clicked="OnTechModeClicked"
-                        BackgroundColor="#80000000"
-                        TextColor="White"
-                        FontSize="22"
-                        WidthRequest="56"
-                        HeightRequest="56"
-                        CornerRadius="28" />
             </HorizontalStackLayout>
-        </Grid>
-
-        <!--
-            Тех.режим: затемнённый экран поверх слайд-шоу с подсказкой, как настроить
-            adb/разрешение отладки. Появляется по кнопке 🔧 в панели управления. Слайд-шоу
-            при этом не мешает: экран простой, без полноэкранных блокировок, а системный
-            диалог «разрешить отладку» показывается поверх любого приложения.
-        -->
-        <Grid x:Name="TechModeOverlay"
-              IsVisible="False"
-              BackgroundColor="#F0101010"
-              Padding="40">
-            <VerticalStackLayout VerticalOptions="Center"
-                                 HorizontalOptions="Center"
-                                 Spacing="18">
-                <Label Text="Тех.режим"
-                       TextColor="White"
-                       FontSize="30"
-                       FontAttributes="Bold"
-                       HorizontalTextAlignment="Center" />
-                <Label x:Name="TechModeHint"
-                       TextColor="#DDDDDD"
-                       FontSize="20"
-                       LineBreakMode="WordWrap"
-                       HorizontalTextAlignment="Center"
-                       MaximumWidthRequest="900" />
-                <Button Text="Выйти из тех.режима"
-                        Clicked="OnExitTechModeClicked"
-                        BackgroundColor="#4FC3F7"
-                        TextColor="#101010"
-                        FontSize="20"
-                        HeightRequest="56"
-                        CornerRadius="28"
-                        HorizontalOptions="Center" />
-            </VerticalStackLayout>
         </Grid>
 
         <!--

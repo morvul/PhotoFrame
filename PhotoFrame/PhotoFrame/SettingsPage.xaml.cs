@@ -400,6 +400,28 @@ namespace PhotoFrame
             LaunchDelayPanel.IsVisible = LaunchOnBootSwitch.IsToggled;
 
         /// <summary>
+        /// Тех.режим для обслуживания рамки: выключает автозапуск и напоминает шаги, как
+        /// подтвердить разрешение отладки / настроить adb. Приложение остаётся home-экраном,
+        /// поэтому после перезагрузки рамка всё равно покажет слайд-шоу (не кирпич) —
+        /// отключаем только лишний автозапуск по BOOT_COMPLETED.
+        /// </summary>
+        private void OnTechModeClicked(object? sender, EventArgs e)
+        {
+            FrameSettings.LaunchOnBoot = false;
+            LaunchOnBootSwitch.IsToggled = false;
+            LaunchDelayPanel.IsVisible = false;
+
+            DisplayAlert(
+                "Тех.режим",
+                "Автозапуск выключен (LaunchOnBoot = false). Приложение остаётся home-экраном, "
+                + "поэтому после перезагрузки рамка всё равно покажет слайд-шоу.\n\n"
+                + "Подключите рамку по USB и подтвердите «Разрешить отладку по USB» "
+                + "(или доверьте ключ с уже авторизованной машины).\n\n"
+                + "Для возврата включите «Открывать слайд-шоу при включении рамки».",
+                "OK");
+        }
+
+        /// <summary>
         /// Раскрывает и сворачивает раздел настроек.
         /// </summary>
         /// <remarks>

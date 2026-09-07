@@ -631,6 +631,23 @@
                                 TextColor="White" TitleColor="Gray" BackgroundColor="#1E1E1E"
                                 VerticalOptions="Center" />
                     </Grid>
+
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="16,0,0,0">
+                        <VerticalStackLayout Grid.Column="0">
+                            <Label Text="Тех.режим (настройка adb)" TextColor="White" FontSize="16" />
+                            <Label Text="Выключает автозапуск и показывает шаги, как подтвердить разрешение отладки"
+                                   TextColor="Gray" FontSize="13" />
+                        </VerticalStackLayout>
+                        <Button Grid.Column="1" x:Name="TechModeButton"
+                                Text="Включить"
+                                Clicked="OnTechModeClicked"
+                                BackgroundColor="#333333"
+                                TextColor="White"
+                                FontSize="14"
+                                Padding="16,10"
+                                CornerRadius="8"
+                                VerticalOptions="Center" />
+                    </Grid>
                 </VerticalStackLayout>
 
                 <!-- ================= О программе ================= -->
