@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:PhotoFrame"
@@ -498,7 +498,59 @@
                         WidthRequest="56"
                         HeightRequest="56"
                         CornerRadius="28" />
+
+                <!--
+                    Тех.режим: на время обслуживания рамки. Выключает автозапуск и показывает
+                    подсказку, чтобы можно было настроить adb/разрешение отладки, не мешая
+                    слайд-шоу. Домой приложение остаётся — рамка после ребута всё равно
+                    загрузится в слайд-шоу (это home-приложение), просто без лишнего
+                    автозапуска по BOOT_COMPLETED.
+                -->
+                <Button x:Name="TechModeButton"
+                        Text="🔧"
+                        Clicked="OnTechModeClicked"
+                        BackgroundColor="#80000000"
+                        TextColor="White"
+                        FontSize="22"
+                        WidthRequest="56"
+                        HeightRequest="56"
+                        CornerRadius="28" />
             </HorizontalStackLayout>
+        </Grid>
+
+        <!--
+            Тех.режим: затемнённый экран поверх слайд-шоу с подсказкой, как настроить
+            adb/разрешение отладки. Появляется по кнопке 🔧 в панели управления. Слайд-шоу
+            при этом не мешает: экран простой, без полноэкранных блокировок, а системный
+            диалог «разрешить отладку» показывается поверх любого приложения.
+        -->
+        <Grid x:Name="TechModeOverlay"
+              IsVisible="False"
+              BackgroundColor="#F0101010"
+              Padding="40">
+            <VerticalStackLayout VerticalOptions="Center"
+                                 HorizontalOptions="Center"
+                                 Spacing="18">
+                <Label Text="Тех.режим"
+                       TextColor="White"
+                       FontSize="30"
+                       FontAttributes="Bold"
+                       HorizontalTextAlignment="Center" />
+                <Label x:Name="TechModeHint"
+                       TextColor="#DDDDDD"
+                       FontSize="20"
+                       LineBreakMode="WordWrap"
+                       HorizontalTextAlignment="Center"
+                       MaximumWidthRequest="900" />
+                <Button Text="Выйти из тех.режима"
+                        Clicked="OnExitTechModeClicked"
+                        BackgroundColor="#4FC3F7"
+                        TextColor="#101010"
+                        FontSize="20"
+                        HeightRequest="56"
+                        CornerRadius="28"
+                        HorizontalOptions="Center" />
+            </VerticalStackLayout>
         </Grid>
 
         <!--

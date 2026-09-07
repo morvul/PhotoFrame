@@ -1486,6 +1486,36 @@ namespace PhotoFrame
             await Shell.Current.GoToAsync(nameof(CameraViewPage));
         }
 
+        /// <summary>
+        /// Тех.режим для обслуживания рамки: выключает автозапуск и показывает подсказку,
+        /// чтобы разрешение отладки / настройку adb было нечем перехватить.
+        /// </summary>
+        /// <remarks>
+        /// Приложение остаётся home-приложением, поэтому рамка и после перезагрузки
+        /// загрузится в слайд-шоу — отключаем только лишний автозапуск по BOOT_COMPLETED,
+        /// а не саму роль. Это безопасно: без home приложения рамка могла бы остаться
+        /// на пустом экране (кирпич).
+        /// </remarks>
+        private void OnTechModeClicked(object? sender, EventArgs e)
+        {
+            FrameSettings.LaunchOnBoot = false;
+
+            TechModeHint.Text =
+                "Автозапуск выключен (LaunchOnBoot = false). Приложение остаётся home-экраном, "
+                + "поэтому после перезагрузки рамка всё равно покажет слайд-шоу.\n\n"
+                + "Подключите рамку по USB и подтвердите «Разрешить отладку по USB» "
+                + "(или доверьте ключ с уже авторизованной машины).\n\n"
+                + "После настройки — «Выйти из тех.режима».";
+
+            TechModeOverlay.IsVisible = true;
+        }
+
+        private void OnExitTechModeClicked(object? sender, EventArgs e)
+        {
+            FrameSettings.LaunchOnBoot = true;
+            TechModeOverlay.IsVisible = false;
+        }
+
         private async void OnFileInfoClicked(object? sender, EventArgs e)
         {
             if (_localPhotoPaths.Count == 0 || _isLeavingToAnotherPage)
