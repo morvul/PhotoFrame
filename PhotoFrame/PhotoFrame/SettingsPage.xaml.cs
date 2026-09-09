@@ -117,10 +117,35 @@ namespace PhotoFrame
             return hourLabels;
         }
 
-        protected override void OnAppearing()
+        protected override async void OnAppearing()
         {
             base.OnAppearing();
+
+            // На свежей установке разрешение ещё не выдано, и без него чтение
+            // immich.key/homeassistant.key проваливается молча — поля просто
+            // остаются пустыми без единой пометки, почему. Здесь же самое место
+            // спросить: до LoadCurrentSettings ничего из общей памяти не читается.
+            await EnsureStoragePermissionAsync().ConfigureAwait(true);
+
             LoadCurrentSettings();
+        }
+
+        /// <summary>
+        /// Разрешение на чтение общей памяти. См. <see cref="FolderPickerPage"/> — тот же
+        /// приём, здесь нужен ради ключевых файлов, а не выбора папок.
+        /// </summary>
+        private static async Task<bool> EnsureStoragePermissionAsync()
+        {
+            PermissionStatus permissionStatus =
+                await Permissions.CheckStatusAsync<Permissions.StorageRead>().ConfigureAwait(true);
+
+            if (permissionStatus != PermissionStatus.Granted)
+            {
+                permissionStatus =
+                    await Permissions.RequestAsync<Permissions.StorageRead>().ConfigureAwait(true);
+            }
+
+            return permissionStatus == PermissionStatus.Granted;
         }
 
         private static string[] BuildSecondsChoices()
@@ -499,6 +524,27 @@ namespace PhotoFrame
         {
             ApplySettings();
             await Shell.Current.GoToAsync(nameof(SensorPickerPage));
+        }
+
+        /// <summary>Ищет Home Assistant в домашней сети, чтобы не набирать адрес пультом.</summary>
+        private async void OnFindHomeAssistantServerClicked(object? sender, EventArgs e)
+        {
+            HomeAssistantFindButton.IsEnabled = false;
+            HomeAssistantStatusLabel.Text = "Поиск в сети…";
+
+            try
+            {
+                var finder = new LanServerFinder();
+                List<string> foundServers = await finder.FindHomeAssistantServersAsync().ConfigureAwait(true);
+
+                // Пока искали адрес, могли положить и файл с токеном — самое время его подхватить.
+                ShowHomeAssistantToken();
+                ApplyFoundServer(foundServers, HomeAssistantUrlEntry, HomeAssistantStatusLabel, "Home Assistant");
+            }
+            finally
+            {
+                HomeAssistantFindButton.IsEnabled = true;
+            }
         }
 
         /// <summary>
@@ -886,6 +932,52 @@ namespace PhotoFrame
             ImmichStatusLabel.Text = _selectedImmichAlbumIds.Count == 0
                 ? "Ничего не отмечено — покажем всю библиотеку"
                 : $"Отмечено альбомов: {_selectedImmichAlbumIds.Count}";
+
+        /// <summary>Ищет Immich в домашней сети, чтобы не набирать адрес пультом.</summary>
+        private async void OnFindImmichServerClicked(object? sender, EventArgs e)
+        {
+            ImmichFindButton.IsEnabled = false;
+            ImmichStatusLabel.Text = "Поиск в сети…";
+
+            try
+            {
+                var finder = new LanServerFinder();
+                List<string> foundServers = await finder.FindImmichServersAsync().ConfigureAwait(true);
+
+                // Пока искали адрес, могли положить и файл с ключом — самое время его подхватить.
+                ShowImmichApiKey();
+                ApplyFoundServer(foundServers, ImmichUrlEntry, ImmichStatusLabel, "Immich");
+            }
+            finally
+            {
+                ImmichFindButton.IsEnabled = true;
+            }
+        }
+
+        /// <summary>
+        /// Подставляет найденный адрес в поле. Ноль или несколько найденных — решение
+        /// оставляем человеку: подставлять наугад неверный адрес хуже, чем спросить.
+        /// </summary>
+        private static void ApplyFoundServer(
+            List<string> foundServers, Entry urlEntry, Label statusLabel, string serviceName)
+        {
+            switch (foundServers.Count)
+            {
+                case 0:
+                    statusLabel.Text = $"{serviceName} не найден в этой сети — введите адрес вручную";
+                    break;
+
+                case 1:
+                    urlEntry.Text = foundServers[0];
+                    statusLabel.Text = $"Найден: {foundServers[0]}";
+                    break;
+
+                default:
+                    statusLabel.Text =
+                        $"Найдено несколько: {string.Join(", ", foundServers)} — введите нужный адрес вручную";
+                    break;
+            }
+        }
 
         /// <summary>
         /// Спрашивает у сервера список альбомов — заодно это и проверка связи с ключом.

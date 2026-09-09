@@ -32,6 +32,27 @@ namespace PhotoFrame.Core.Tests
                 ImmichCatalog.BuildPreviewUrl("immich.home/", "abc"));
 
         [Fact]
+        public void BuildPingUrl_UsesServerRoute() =>
+            Assert.Equal(
+                "http://immich.home/api/server/ping", ImmichCatalog.BuildPingUrl("immich.home"));
+
+        [Fact]
+        public void BuildLegacyPingUrl_UsesOlderRoute() =>
+            Assert.Equal(
+                "http://immich.home/api/server-info/ping",
+                ImmichCatalog.BuildLegacyPingUrl("immich.home"));
+
+        [Theory]
+        [InlineData("{\"res\":\"pong\"}", true)]
+        [InlineData("{\"res\":\"PONG\"}", true)]
+        [InlineData("{\"res\":\"ping\"}", false)]
+        [InlineData("<html>Not Immich</html>", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsPingResponse_RecognizesImmichsPong(string? body, bool expected) =>
+            Assert.Equal(expected, ImmichCatalog.IsPingResponse(body));
+
+        [Fact]
         public void ParseAlbums_ReadsNameAndCount()
         {
             const string albumsJson = """

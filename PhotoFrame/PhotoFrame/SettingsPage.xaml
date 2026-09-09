@@ -108,14 +108,24 @@
                         <Label Text="Адрес сервера" TextColor="White" FontSize="16" />
                         <Label Text="Можно без http:// — например 192.168.1.10:2283"
                                TextColor="Gray" FontSize="13" />
-                        <Entry x:Name="ImmichUrlEntry"
-                               Placeholder="http://192.168.1.10:2283"
-                               PlaceholderColor="#555555"
-                               Keyboard="Url"
-                               TextColor="White"
-                               BackgroundColor="#1E1E1E"
-                               FontSize="15"
-                               HeightRequest="52" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <Entry Grid.Column="0" x:Name="ImmichUrlEntry"
+                                   Placeholder="http://192.168.1.10:2283"
+                                   PlaceholderColor="#555555"
+                                   Keyboard="Url"
+                                   TextColor="White"
+                                   BackgroundColor="#1E1E1E"
+                                   FontSize="15"
+                                   HeightRequest="52" />
+                            <Button Grid.Column="1" x:Name="ImmichFindButton"
+                                    Text="Найти"
+                                    Clicked="OnFindImmichServerClicked"
+                                    BackgroundColor="#333333"
+                                    TextColor="White"
+                                    Padding="18,10"
+                                    CornerRadius="8"
+                                    VerticalOptions="Center" />
+                        </Grid>
 
                         <Label Text="Ключ доступа" TextColor="White" FontSize="16" Margin="0,6,0,0" />
                         <Label Text="Immich → Account Settings → API Keys → New API Key"
@@ -420,14 +430,24 @@
                         <Label Text="Адрес Home Assistant" TextColor="White" FontSize="16" />
                         <Label Text="Внутренний адрес, без интернета — например homeassistant.local:8123"
                                TextColor="Gray" FontSize="13" />
-                        <Entry x:Name="HomeAssistantUrlEntry"
-                               Placeholder="http://homeassistant.local:8123"
-                               PlaceholderColor="#555555"
-                               Keyboard="Url"
-                               TextColor="White"
-                               BackgroundColor="#1E1E1E"
-                               FontSize="15"
-                               HeightRequest="52" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <Entry Grid.Column="0" x:Name="HomeAssistantUrlEntry"
+                                   Placeholder="http://homeassistant.local:8123"
+                                   PlaceholderColor="#555555"
+                                   Keyboard="Url"
+                                   TextColor="White"
+                                   BackgroundColor="#1E1E1E"
+                                   FontSize="15"
+                                   HeightRequest="52" />
+                            <Button Grid.Column="1" x:Name="HomeAssistantFindButton"
+                                    Text="Найти"
+                                    Clicked="OnFindHomeAssistantServerClicked"
+                                    BackgroundColor="#333333"
+                                    TextColor="White"
+                                    Padding="18,10"
+                                    CornerRadius="8"
+                                    VerticalOptions="Center" />
+                        </Grid>
 
                         <Label Text="Токен доступа" TextColor="White" FontSize="16" Margin="0,6,0,0" />
                         <Label Text="В Home Assistant: профиль (внизу боковой панели) → Security → Long-lived access tokens → Create token. Показывается только один раз — скопируйте сразу"

@@ -126,6 +126,29 @@ namespace PhotoFrame
         public static string BuildIdentityUrl(string serverUrl) =>
             NormalizeServerUrl(serverUrl) + "/api/users/me";
 
+        /// <summary>Порт, на котором Immich слушает по умолчанию.</summary>
+        public const int DefaultPort = 2283;
+
+        /// <summary>
+        /// Лёгкий запрос без авторизации — годится, чтобы отличить настоящий Immich от
+        /// чего угодно ещё, что слушает тот же порт, при поиске сервера в сети.
+        /// </summary>
+        public static string BuildPingUrl(string serverUrl) =>
+            NormalizeServerUrl(serverUrl) + "/api/server/ping";
+
+        /// <summary>Тот же запрос по старому пути — серверы до переезда с server-info на server.</summary>
+        public static string BuildLegacyPingUrl(string serverUrl) =>
+            NormalizeServerUrl(serverUrl) + "/api/server-info/ping";
+
+        /// <summary>True, если тело ответа похоже на {"res":"pong"} — здоровый Immich.</summary>
+        public static bool IsPingResponse(string? pingJson)
+        {
+            using JsonDocument? document = TryParse(pingJson ?? string.Empty);
+            return document is not null
+                && string.Equals(
+                    ReadString(document.RootElement, "res"), "pong", StringComparison.OrdinalIgnoreCase);
+        }
+
         /// <summary>
         /// Адрес готового изображения объекта.
         /// </summary>
